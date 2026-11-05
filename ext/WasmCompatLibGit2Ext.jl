@@ -590,6 +590,30 @@ Base.Experimental.@overlay OV LibGit2.RemoteCallbacks(c::LibGit2.Callbacks) = Li
 Base.Experimental.@overlay OV LibGit2.approve(p::LibGit2.CredentialPayload; shred::Bool = true) = nothing
 Base.Experimental.@overlay OV LibGit2.reject(p::LibGit2.CredentialPayload; shred::Bool = true) = nothing
 
+# WASI preview 1 has no permission bits, so the files the module writes are not executable: the entries git
+# records as executable (100755) of the tree checked out under `root` are made so here, through the
+# program's `chmod` (WasmCodegen: the host's `julia_io` file modes; without them, nothing changes).
+function exec_bits!(repo::Ptr{Cvoid}, spec::String, root::String)
+    rc = try
+        ccall((:lg2w_ls_tree, "libgit2"), Int32, (UInt32, UInt32), ha(repo), cin(spec))
+    finally
+        release!()
+    end
+    rc < 0 && return nothing
+    out = String(copyout(ccall((:lg2w_out_ptr, "libgit2"), UInt32, ()), Int(ccall((:lg2w_out_len, "libgit2"), UInt32, ()))))
+    for rec in split(out, '\0'; keepempty = false)       # "<mode> <type> <id>\t<path>"
+        startswith(rec, "100755 ") || continue
+        t = findfirst('\t', rec)
+        t === nothing && continue
+        f = joinpath(root, String(SubString(rec, nextind(rec, t))))
+        try
+            chmod(f, 0o755)
+        catch
+        end
+    end
+    return nothing
+end
+
 # error.jl: the last error, read from the module
 Base.Experimental.@overlay OV function LibGit2.Error.last_error()
     LibGit2.ensure_initialized()
@@ -655,7 +679,9 @@ Base.Experimental.@overlay OV function LibGit2.clone(repo_url::AbstractString, r
                    clone_opts.checkout_opts.checkout_strategy, f.prune, f.update_fetchhead, f.download_tags,
                    reinterpret(Int32, f.depth), reinterpret(Int32, f.follow_redirects))
         rc < 0 && throw(Error.GitError(rc))
-        return LibGit2.GitRepo(hp(load32(o)))
+        repo = LibGit2.GitRepo(hp(load32(o)))
+        clone_opts.bare == 0 && exec_bits!(repo.ptr, "HEAD^{tree}", String(repo_path))
+        return repo
     finally
         release!()
     end
@@ -671,6 +697,9 @@ Base.Experimental.@overlay OV function LibGit2.checkout_tree(repo::LibGit2.GitRe
                    (UInt32, UInt32, UInt32, Int32, UInt32, UInt32, Int32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32),
                    ha(repo.ptr), ha(obj.ptr), a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11])
         rc < 0 && throw(Error.GitError(rc))
+        td = options.target_directory
+        root = convert(Ptr{UInt8}, td) == C_NULL ? LibGit2.path(repo) : unsafe_string(td)
+        exec_bits!(repo.ptr, string(GitHash(obj)), root)
         return Cint(rc)
     finally
         release!()
@@ -687,6 +716,7 @@ Base.Experimental.@overlay OV function LibGit2.reset!(repo::LibGit2.GitRepo, obj
                    (UInt32, UInt32, Int32, UInt32, Int32, UInt32, UInt32, Int32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32),
                    ha(repo.ptr), ha(obj.ptr), Int32(mode), a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11])
         rc < 0 && throw(Error.GitError(rc))
+        mode == Cint(Consts.RESET_HARD) && !LibGit2.isbare(repo) && exec_bits!(repo.ptr, "HEAD^{tree}", LibGit2.path(repo))
     finally
         release!()
     end
