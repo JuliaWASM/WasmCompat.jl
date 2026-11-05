@@ -182,17 +182,17 @@ function print_any(io::IO, @nospecialize(x))
     show_any(io, x)
 end
 
+"An exception of a type not known at compile time, as a value of a known type (see `logging_error`)."
+struct ErrorShown
+    err::Any
+end
+
 """
     show_any(io, x)
 
 `ConsoleLogger`'s `showvalue(io, x)` (`show(io, "text/plain", x)`; `showerror` of an exception)
 of a value of a type not known at compile time: by `isa` over common types; natively for any.
 """
-"An exception of a type not known at compile time, as a value of a known type (see `logging_error`)."
-struct ErrorShown
-    err::Any
-end
-
 function show_any(io::IO, @nospecialize(x))
     if x isa ErrorShown
         showerror_any(io, x.err)
