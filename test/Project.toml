@@ -1,0 +1,15 @@
+[deps]
+ArgTools = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
+Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+Tar = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+WasmCodegen = "5b0f1d7e-3c2a-4e8b-9a61-7d2f4c8e1a93"
+WasmCompat = "740f80e5-dc3a-45f1-9413-3050938ad54a"
+
+[sources]
+WasmCodegen = {url = "https://github.com/gbaraldi/WasmCodegen.jl", rev = "main"}
+WasmCompat = {path = ".."}
