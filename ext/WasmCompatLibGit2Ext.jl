@@ -491,7 +491,7 @@ end
 # Closed-world forms of three methods of LibGit2 (the same results):
 # (`@check` is `rc < 0 && throw(Error.GitError(rc))` in the overlays below, as LibGit2's macro expands)
 # `GitObject(repo, ptr)` (types.jl) calls the type `objtype` returns: here one constructor per type
-Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function LibGit2.GitObject(repo::LibGit2.GitRepo, ptr::Ptr{Cvoid})
+Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function LibGit2.GitObject(repo::LibGit2.GitRepo, ptr::Ptr{Cvoid})::LibGit2.GitObject
     t = Consts.OBJECT(ptr)
     t == Consts.OBJ_COMMIT && return LibGit2.GitCommit(repo, ptr)
     t == Consts.OBJ_TREE && return LibGit2.GitTree(repo, ptr)
@@ -520,7 +520,7 @@ Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function (::Type{T})
                                                                    ", received object of type ", objtype_name(t))))
         end
     end
-    return T(repo, obj_ptr)
+    return T(repo, obj_ptr)::T
 end
 
 # `commit(repo, msg; ...)` (commit.jl) splats its parents into the varargs method, which passes their pointers
