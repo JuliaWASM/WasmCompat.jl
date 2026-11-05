@@ -1,5 +1,6 @@
 #!/bin/bash
 # check.sh NAME [HOST_EXTENSIONS]: compile test/wasm/NAME.jl's `Prog.main` with WasmCodegen (trim = :safe), run it
+# (PCRE2=1: with Base's Regex on PCRE2, see build.jl)
 # on Node's WASI and natively, and diff the two outputs. Needs JULIA, NODE, and WCG_JS (WasmCodegen's js/ directory);
 # the active project must have WasmCodegen, WasmCompat and the standard libraries the programs use.
 set -u

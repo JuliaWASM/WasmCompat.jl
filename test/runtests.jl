@@ -5,6 +5,7 @@
 using Test
 using WasmCodegen, WasmCompat
 import TOML, Logging, Tar, ArgTools, Artifacts, Dates
+import PCRE2_wasm_jll
 using Base: UUID, SHA1, IdSet
 using Random: Xoshiro
 
@@ -16,6 +17,7 @@ const LoggingExt = ext(:WasmCompatLoggingExt)
 const TarExt = ext(:WasmCompatTarExt)
 const ArgToolsExt = ext(:WasmCompatArgToolsExt)
 const ArtifactsExt = ext(:WasmCompatArtifactsExt)
+const PCRE2Ext = ext(:WasmCompatPCRE2Ext)
 
 # the methods of WasmCodegen's overlay table defined by module `m`
 function overlays(m::Module)
@@ -33,6 +35,7 @@ end
         @test TarExt isa Module
         @test ArgToolsExt isa Module
         @test ArtifactsExt isa Module
+        @test PCRE2Ext isa Module
     end
 
     @testset "TOML: typed printer = TOML.print" begin
@@ -166,6 +169,26 @@ end
         @test length(overlays(TarExt)) >= 16 # the generated callback specializations + check_version_field
         @test length(overlays(ArgToolsExt)) >= 12
         @test length(overlays(ArtifactsExt)) == 1
+    end
+
+    @testset "PCRE2: the configuration and the module" begin
+        m = WasmCompat.pcre2_module()
+        @test isfile(m) && read(m, 4) == b"\0asm"
+        # the module's PCRE2 is the compiling Julia's (error messages and offsets differ between minors)
+        native = PCRE2Ext.native_pcre2_version()
+        @test (native.major, native.minor) == (pkgversion(PCRE2_wasm_jll).major, pkgversion(PCRE2_wasm_jll).minor)
+        # one function per PCRE2 call Base's pcre.jl makes outside its JIT stacks and match contexts
+        names = Set(first(k) for (k, _) in PCRE2Ext.FUNCTIONS)
+        @test length(names) == 13 && all(k -> k[2] == "libpcre2-8", first.(PCRE2Ext.FUNCTIONS))
+        @test :pcre2_match_8 in names && :pcre2_substring_copy_bynumber_8 in names
+        if hasfield(WasmCodegen.Config, :foreign_functions) && hasfield(WasmCodegen.Config, :import_libraries)
+            c = WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
+            @test length(c.foreign_functions) == 13 && c.import_libraries == ["other", "pcre2"]
+            @test WasmCompat.pcre2_config(c).import_libraries == ["other", "pcre2"]
+            @test_throws ArgumentError WasmCompat.pcre2_config(WasmCodegen.Config(host = :js))
+        else
+            @test_throws ErrorException WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi))
+        end
     end
 
     @testset "generated overlays are current" begin
