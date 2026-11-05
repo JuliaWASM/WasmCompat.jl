@@ -132,12 +132,11 @@ end
         # each record as the macro would pass it (`_file`/`_line` given, so both sides agree)
         cases = [
             (Logging.Info, "plain", (;)),
-            (Logging.Info, "values", (; n = 3, s = "str", v = [1, 2, 3], sym = :abc, ver = v"1.2.3", u = UUID(1), b = true, f = 1.5)),
+            (Logging.Info, "values", (; n = 3, s = "str", sym = :abc, ver = v"1.2.3", u = UUID(1), b = true, f = 1.5)),
             (Logging.Warn, "warn", (; key = :sym)),
             (Logging.Error, "err", (; exception = ErrorException("boom"))),
             (Logging.Warn, "arg", (; e = ArgumentError("bad"))),
             (Logging.Info, "multi\nline\nmessage", (; x = "a\nb")),
-            (Logging.Warn, "vectors", (; v = ["a", "b"], w = Symbol[:a])),
         ]
         for (level, msg, kw) in cases
             native = stock() do

@@ -19,9 +19,14 @@ Differences from the native default logger, by design:
   `Info` and `JULIA_DEBUG` is ignored (`@debug` prints nothing);
 - an exception logged with its backtrace (`exception = (err, bt)`) is shown without the backtrace;
 - every value is shown as a value of a type not known at compile time (the macros pass them as
-  `Any`): of one of the types of `show_any` below, or an exception (`WasmCompat.showerror_hook`,
-  then WasmCodegen's `Runtime.showerror_any`); another is shown as `(a value of type T)`. The
-  methods of this module only run in Wasm (natively the logger is never current).
+  `Any`): of one of the types of `show_any` below (strings, symbols, numbers, versions, UUIDs),
+  or an exception (`WasmCompat.showerror_hook`, then WasmCodegen's `Runtime.showerror_any`);
+  another, vectors included, is shown as `(a value of type T)`. The methods of this module only
+  run in Wasm (natively the logger is never current).
+- a log call whose key-value pairs include a value of a type not known at compile time (a
+  caught `err` without a type assertion) builds a tuple of abstract type, which WasmCodegen does
+  not compile (a limit of the code generator, not of this extension; native trim compiles it):
+  assert the type at the call (`exception = err::MyError`) or pass a value of a concrete type.
 """
 module WasmCompatLoggingExt
 
@@ -41,15 +46,15 @@ end
 const LOGGER = Ref(WasmStderrLogger(Info))
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function Base.CoreLogging.current_logger_for_env(
         std_level::LogLevel, group, _module)
-    logger = LOGGER[]
-    return std_level >= logger.min_level ? logger : nothing
+    # (the level against a constant: a call below it compiles to nothing, its values unbuilt)
+    return std_level >= Info ? LOGGER[] : nothing
 end
 
 Base.CoreLogging.shouldlog(::WasmStderrLogger, level, _module, group, id) = true
 Base.CoreLogging.min_enabled_level(logger::WasmStderrLogger) = logger.min_level
 Base.CoreLogging.catch_exceptions(::WasmStderrLogger) = true
 
-const MAXLOG = Dict{Any, Int}()
+const MAXLOG = Dict{Symbol, Int}()
 
 # (the macros call this; its arguments are specialized on, unlike `handle_message`'s)
 function Base.CoreLogging.handle_message_nothrow(::WasmStderrLogger, level::LogLevel, message, _module, group, id,
@@ -73,7 +78,9 @@ function Base.CoreLogging.logging_error(::WasmStderrLogger, level, _module, grou
     buf = IOBuffer()
     msg = string("Exception while generating log record in module ", string_any(_module), " at ",
         string_any(filepath), ":", string_any(line))
-    log_record(buf, Base.CoreLogging.Error, msg, _module, id, filepath, line, (; exception = err))
+    # (not `(; exception = err)`: a tuple of an `Any` value is not compiled; the exception
+    # shown directly instead)
+    log_record(buf, Base.CoreLogging.Error, msg, _module, id, filepath, line, (; exception = ErrorShown(err)))
     write(Core.stderr, take!(buf))
     return nothing
 end
@@ -88,7 +95,7 @@ function log_record(io::IO, level::LogLevel, @nospecialize(message), @nospeciali
         @nospecialize(file), @nospecialize(line), kwargs::NamedTuple)
     if haskey(kwargs, :maxlog)
         maxlog = kwargs.maxlog
-        if maxlog isa Core.BuiltinInts
+        if maxlog isa Core.BuiltinInts && id isa Symbol
             remaining = get!(MAXLOG, id, Int(maxlog))
             remaining == 0 && return false
             MAXLOG[id] = remaining - 1
@@ -135,12 +142,24 @@ function record_suffix(@nospecialize(_module), @nospecialize(file), @nospecializ
     _module !== nothing && (suffix *= module_text(_module))
     if file !== nothing
         _module !== nothing && (suffix *= " ")
-        suffix *= Base.contractuser(file isa String ? file : string_any(file))
+        suffix *= contractuser(file isa String ? file : string_any(file))
         if line !== nothing
             suffix *= ":" * (line isa Int ? string(line) : line isa UnitRange{Int} ? string(first(line), "-", last(line)) : string_any(line))
         end
     end
     return suffix
+end
+# `Base.contractuser(path)` without a regex (Base's goes through `relpath`): the home directory
+# as `~`, for the normalized absolute paths of log calls
+function contractuser(path::String)
+    home = try
+        rstrip(homedir(), '/')
+    catch
+        return path
+    end
+    isempty(home) && return path
+    path == home && return "~"
+    return startswith(path, string(home, '/')) ? string("~", SubString(path, ncodeunits(home) + 1)) : path
 end
 module_text(@nospecialize(m)) = m isa Module ? string(m::Module) : string_any(m)
 
@@ -169,8 +188,15 @@ end
 `ConsoleLogger`'s `showvalue(io, x)` (`show(io, "text/plain", x)`; `showerror` of an exception)
 of a value of a type not known at compile time: by `isa` over common types; natively for any.
 """
+"An exception of a type not known at compile time, as a value of a known type (see `logging_error`)."
+struct ErrorShown
+    err::Any
+end
+
 function show_any(io::IO, @nospecialize(x))
-    if x isa Tuple{Exception, Any}
+    if x isa ErrorShown
+        showerror_any(io, x.err)
+    elseif x isa Tuple{Exception, Any}
         showerror_any(io, x[1])
     elseif x isa Exception
         showerror_any(io, x)
@@ -204,12 +230,6 @@ function show_any(io::IO, @nospecialize(x))
         show(io, MIME"text/plain"(), x::Base.UUID)
     elseif x isa Base.SHA1
         show(io, MIME"text/plain"(), x::Base.SHA1)
-    elseif x isa Vector{String}
-        show(io, MIME"text/plain"(), x::Vector{String})
-    elseif x isa Vector{Int64}
-        show(io, MIME"text/plain"(), x::Vector{Int64})
-    elseif x isa Vector{Symbol}
-        show(io, MIME"text/plain"(), x::Vector{Symbol})
     else
         print(io, "(a value of type ", typeof(x), ")")
     end
