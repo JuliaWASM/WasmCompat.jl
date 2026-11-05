@@ -1,6 +1,9 @@
 // node run.mjs MODULE.wasm WORKDIR [ENV=VAL ...]: runs the module's `main` on Node's WASI (preopened WORKDIR,
-// the julia_regex and julia_io path imports if the module imports them), printing what it prints.
+// the julia_regex and julia_io path imports if the module imports them, and the PCRE2 module, `libpcre2-8.wasm`
+// beside MODULE.wasm or $PCRE2_WASM, if it imports "pcre2"), printing what it prints.
 import fs from 'node:fs';
+import path from 'node:path';
+import { pcre2Imports } from '../../js/pcre2.mjs';
 import { WASI } from 'node:wasi';
 const [wasmPath, work, ...envs] = process.argv.slice(2);
 const wcg = process.env.WCG_JS;
@@ -15,6 +18,10 @@ const bind = [];
 if (libs.has('julia_regex')) {
   const { makeJuliaRegex } = await import(`${wcg}/julia_regex.mjs`);
   const rx = makeJuliaRegex(); imports.julia_regex = rx.imports; bind.push(rx);
+}
+if (libs.has('pcre2')) {
+  const file = process.env.PCRE2_WASM ?? path.join(path.dirname(wasmPath), 'libpcre2-8.wasm');
+  Object.assign(imports, await pcre2Imports(fs.readFileSync(file)));
 }
 if (libs.has('julia_io')) {
   const { makeJuliaIOPaths } = await import(`${wcg}/julia_io.mjs`);

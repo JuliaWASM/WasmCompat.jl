@@ -34,6 +34,7 @@ standard library's own methods.
 | `WasmCompatTarExt` | Tar | Callbacks (`predicate`, `callback`, `emit`) specialized on, so calling them is static. `check_version_field` without a regex. | JuliaIO/Tar.jl#206 (the same specializations) |
 | `WasmCompatArgToolsExt` | ArgTools | Callbacks specialized on. `arg_read`/`arg_write` of a path call `open` without a keyword splat. | JuliaIO/ArgTools.jl#46 |
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed in a loop, without a generator whose element type is the abstract `Pair{String}`. | |
+| `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 itself, compiled to WebAssembly: see *Regex* below. Opt-in, through `WasmCompat.pcre2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)` |
 
 The Tar and ArgTools overlays are the libraries' own definitions with `::Function` arguments made type
 parameters. `gen/specialize_callbacks.jl` generates them from the installed Julia's stdlib sources,
@@ -54,6 +55,48 @@ Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function WasmCompat.
     return false
 end
 ```
+
+## Regex
+
+Base's `Regex` calls PCRE2, a C library a WebAssembly module does not have. With `WasmCompatPCRE2Ext`, those
+calls (`pcre2_compile_8`, `pcre2_match_8`, ...) are Julia functions of the extension, over PCRE2 itself compiled to
+WebAssembly as a separate module: [PCRE2_wasm_jll](https://github.com/pankgeorg/PCRE2_wasm_jll.jl)'s
+`libpcre2-8.wasm`, which imports nothing. Base's `regex.jl` and `pcre.jl` run unchanged, so patterns, errors and
+offsets are PCRE2's own. Unlike the other extensions, this one is opt-in, because the host must provide the module:
+
+```julia
+using WasmCodegen, WasmCompat, PCRE2_wasm_jll    # PCRE2_wasm_jll: the PCRE2 of the compiling Julia (10.46 for 1.13.2)
+config = WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi))
+WasmCodegen.compile([WasmCodegen.Entry(Program.main, (); name = "main")]; config)
+cp(WasmCompat.pcre2_module(), "libpcre2-8.wasm")   # deploy it with the program
+```
+
+`pcre2_config` adds the extension's functions (`Config(foreign_functions)`, library `"libpcre2-8"`) and the import
+library `"pcre2"` (`Config(import_libraries)`). The host instantiates the PCRE2 module, once per instance of the
+program, and gives its exports as the import module `"pcre2"`; `js/pcre2.mjs` does that for JavaScript:
+
+```js
+import { pcre2Imports } from './pcre2.mjs';
+const imports = { ...wasi.getImportObject(), ...(await pcre2Imports(fs.readFileSync('libpcre2-8.wasm'))) };
+```
+
+The program copies patterns and subjects into the PCRE2 module's memory and copies results back. What Base holds
+(compiled patterns, match data) are Julia objects, and the ovector and name table it reads are Julia arrays.
+
+- **No JIT.** Base compiles every pattern with `PCRE2_MATCH_INVALID_UTF`, and without a JIT PCRE2 then checks the
+  subject's UTF-8 on every match, so `eachmatch` would be quadratic. A subject is checked once when it is copied in,
+  and a valid one is matched with a twin of the pattern compiled without that option. `\C` in UTF mode is refused
+  at `jit_compile`, as the native JIT does, so Base throws the same error.
+- **Compiled patterns are kept** by pattern and options, because finalizers do not run in a module and `Regex`
+  frees its pattern only in one. A program that builds the same pattern repeatedly compiles it once.
+- **Size:** the PCRE2 module is 399 KB, 110 KB gzipped (PCRE2's whole 8-bit API; about 140 KB of it is Unicode
+  tables). The program itself is no larger than with a host regex engine: the same regex workloads compile to
+  43 KB (15 KB gzipped), against 44 KB with the host-RegExp engine of gbaraldi/WasmCodegen.jl#35.
+- **Speed** (Node 24, best of 5): about 5× native Julia (with its JIT) per match, about 12× on engine-bound
+  matching, and about native on compiling patterns.
+- **Differs from native Julia:** an error PCRE2 detects only while matching can read differently, because the
+  native JIT detects it as JIT stack exhaustion. Example: `(?R)` gives "nested recursion at the same subject
+  position" here and "JIT stack limit reached" natively. PCRE2 without a JIT gives the same as here.
 
 ## Differences from native, by design
 
@@ -90,13 +133,14 @@ end
   therefore reads state or performs I/O. For example, the Logging extension reads its logger from a
   global rather than constructing it.
 - **`Tar.list` traps at run time** in a standalone test program on WasmCodegen r2 (a null dereference after `Tar.create` succeeds), and the cause is not yet known. `Tar.extract`, `read_tarball` and `tree_hash`, as a package manager uses them, run correctly in a full program on the same stack.
-- **Tar's error messages** use a regex (`read_standard_header`), so programs that hit them need the
-  host's regex extension (`Config(host_extensions = [:julia_regex])`).
+- **Tar's error messages** use a regex (`read_standard_header`), so programs that hit them need a
+  regex engine: the PCRE2 extension (see *Regex*).
 
 ## Hosts
 
 The extensions have no host side: they are Julia code compiled into the module, using only WASI
-preview 1 through WasmCodegen's runtime. They are host-neutral.
+preview 1 through WasmCodegen's runtime. They are host-neutral, except that the PCRE2 extension needs the host to
+instantiate PCRE2's module (`js/pcre2.mjs` for JavaScript; any host that can link two modules works the same).
 
 | Host | Status |
 |---|---|
@@ -109,9 +153,11 @@ preview 1 through WasmCodegen's runtime. They are host-neutral.
 
 - `test/runtests.jl` (native): the typed TOML printer against `TOML.print`, byte for byte, on fixed
   and random tables; the Wasm logger's records against `ConsoleLogger`'s; the regex-free version
-  check against the regex; and that every overlay is present.
+  check against the regex; that every overlay is present; and the PCRE2 configuration, module and version.
 - `test/wasm/` (needs Node 24): one small program per extension, compiled with `trim = :safe` and run
-  on Node's WASI. `check.sh` diffs each program's output with native Julia's.
+  on Node's WASI. `check.sh` diffs each program's output with native Julia's. With `PCRE2=1`, `regex.jl` (Base's
+  Regex API, compile errors, PCRE-only constructs, Pkg's semver patterns on every `[compat]` range of the General
+  registry, Tar's path checks) and `corpus.jl` (69 patterns through `eachmatch`, `keys` and `replace`) run on PCRE2.
 
 ## License
 

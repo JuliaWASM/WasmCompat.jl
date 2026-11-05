@@ -14,8 +14,10 @@ own only when WasmCodegen compiles a program; native code is unchanged.
 | `WasmCompatTarExt` | Tar | callbacks specialized on; version field check without a regex |
 | `WasmCompatArgToolsExt` | ArgTools | callbacks specialized on; `open` without a keyword splat |
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed without an abstract `Pair` generator |
+| `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 compiled to Wasm ([`pcre2_config`](@ref)) |
 
-One function here is part of the extensions' interface with programs: [`showerror_hook`](@ref).
+Functions here that are part of the extensions' interface with programs and builds:
+[`showerror_hook`](@ref), [`pcre2_config`](@ref) and [`pcre2_module`](@ref).
 
 An overlay replaces the native method only where inference does not evaluate the call at compile
 time: WasmCodegen's inference still evaluates calls with constant arguments using the native
@@ -40,5 +42,25 @@ end
 ```
 """
 showerror_hook(io::IO, @nospecialize(e)) = false
+
+"""
+    WasmCompat.pcre2_config(config::WasmCodegen.Config; check_version = true) -> Config
+
+`config` with Base's `Regex` on PCRE2 compiled to WebAssembly (the extension
+`WasmCompatPCRE2Ext`, loaded with WasmCodegen and PCRE2_wasm_jll): Base's PCRE2 calls are
+functions of the extension (`Config(foreign_functions)`) over PCRE2_wasm_jll's standalone module,
+which the host instantiates and gives the program as the import module `"pcre2"`
+(`Config(import_libraries)`; `js/pcre2.mjs`, with the file [`pcre2_module`](@ref)). For
+`Config(host = :wasi)`. PCRE2_wasm_jll's version must be the compiling Julia's PCRE2
+(`check_version`), whose error messages and offsets differ between minor versions.
+"""
+function pcre2_config end
+
+"""
+    WasmCompat.pcre2_module() -> String
+
+The path of the PCRE2 module a program compiled with [`pcre2_config`](@ref) imports as `"pcre2"`.
+"""
+function pcre2_module end
 
 end # module
