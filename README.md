@@ -89,6 +89,7 @@ end
   arguments using the native methods (see `WasmCodegen.Runtime.@wasm_method`). Each overlay here
   therefore reads state or performs I/O. For example, the Logging extension reads its logger from a
   global rather than constructing it.
+- **`Tar.list` traps at run time** in a standalone test program on WasmCodegen r2 (a null dereference after `Tar.create` succeeds), and the cause is not yet known. `Tar.extract`, `read_tarball` and `tree_hash`, as a package manager uses them, run correctly in a full program on the same stack.
 - **Tar's error messages** use a regex (`read_standard_header`), so programs that hit them need the
   host's regex extension (`Config(host_extensions = [:julia_regex])`).
 
