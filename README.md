@@ -66,8 +66,13 @@ end
   passed through the conversion function. Any other value is an error in Wasm.
 - **Logging:** the logger is fixed. `with_logger` and `global_logger` are not consulted, the
   minimum level is `Info`, and `JULIA_DEBUG` is ignored. Exceptions are shown without backtraces.
-  Values are shown if they are of a common type (strings, symbols, numbers, versions, UUIDs, some
-  vectors) or an exception; any other value is shown as `(a value of type T)`.
+  Values are shown if they are of a common type (strings, symbols, numbers, versions, UUIDs) or an
+  exception; any other value, vectors included, is shown as `(a value of type T)`.
+- **Logging, a code-generator limit:** a log call whose key-value pairs include a value of a type
+  not known at compile time builds a tuple of abstract type in the caller. An example is a caught
+  `err` passed as it is: `@warn "..." exception = err`. WasmCodegen doesn't compile such a tuple
+  (`trim = :safe` reports "a tuple of abstract type Tuple{Any}"), although native trim does. Assert
+  the type at the call (`exception = err::MyError`) or pass a value of a concrete type.
 
 ## Requirements and known limits
 
