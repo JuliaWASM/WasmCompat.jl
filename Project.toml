@@ -1,7 +1,7 @@
 name = "WasmCompat"
 uuid = "740f80e5-dc3a-45f1-9413-3050938ad54a"
 version = "0.1.0"
-authors = ["Panagiotis Georgakopoulos <panagiotis.georgakopoulos@juliahub.com>"]
+authors = ["Panagiotis Georgakopoulos and contributors"]
 
 [weakdeps]
 ArgTools = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
