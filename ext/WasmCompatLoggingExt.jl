@@ -147,7 +147,7 @@ function record_suffix(@nospecialize(_module), @nospecialize(file), @nospecializ
             suffix *= ":" * (line isa Int ? string(line) : line isa UnitRange{Int} ? string(first(line), "-", last(line)) : string_any(line))
         end
     end
-    return suffix
+    return isempty(suffix) ? suffix : "@ " * suffix
 end
 # `Base.contractuser(path)` without a regex (Base's goes through `relpath`): the home directory
 # as `~`, for the normalized absolute paths of log calls

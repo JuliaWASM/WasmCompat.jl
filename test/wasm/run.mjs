@@ -6,6 +6,7 @@ const [wasmPath, work, ...envs] = process.argv.slice(2);
 const wcg = process.env.WCG_JS;
 const env = Object.fromEntries(envs.map((s) => s.split(/=(.*)/s).slice(0, 2)));
 env.PWD = work;
+if (process.env.HOME) env.HOME = process.env.HOME;  // (the home directory, for paths shown as ~/...)
 const wasi = new WASI({ version: 'preview1', args: ['prog'], env, preopens: { [work]: work }, returnOnExit: true });
 const mod = new WebAssembly.Module(fs.readFileSync(wasmPath));
 const libs = new Set(WebAssembly.Module.imports(mod).map((i) => i.module));
