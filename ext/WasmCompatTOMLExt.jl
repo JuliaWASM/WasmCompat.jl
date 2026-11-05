@@ -43,10 +43,12 @@ const TABLE_TYPES = (Dict{String, Any}, Dict{String, String}, Dict{String, Vecto
     Dict{String, Int64}, Dict{String, Bool}, Dict{String, Vector{Any}}, Dict{String, Dict{String, Any}},
     Dict{String, Dict{String, String}}, Dict{String, Vector{Dict{String, Any}}},
     Dict{String, Union{String, Vector{String}}}, Dict{String, Dates.DateTime},
-    Dict{String, Vector{Dict{String, Dates.DateTime}}})
+    Dict{String, Vector{Dict{String, Dates.DateTime}}}, Dict{String, Base.UUID}, Dict{String, Vector{Base.UUID}},
+    Dict{String, UInt64}, Dict{String, Dict{String, Vector{String}}})
 const ARRAY_TYPES = (Vector{Any}, Vector{String}, Vector{Int64}, Vector{Float64}, Vector{Bool},
     Vector{Dict{String, Any}}, Vector{Dict{String, String}}, Vector{Vector{Any}},
-    Vector{Dates.DateTime}, Vector{Dates.Date}, Vector{Dates.Time}, Vector{Dict{String, Dates.DateTime}})
+    Vector{Dates.DateTime}, Vector{Dates.Date}, Vector{Dates.Time}, Vector{Dict{String, Dates.DateTime}},
+    Vector{Base.UUID})
 # values that are not TOML values but are converted by the conversion function
 const CONVERTED_TYPES = (Base.UUID, Base.SHA1, VersionNumber, Nothing, Symbol)
 
@@ -57,19 +59,19 @@ isa_chain(x::Symbol, types, call, otherwise) =
 struct Unsupported
     kind::String
 end
-@noinline unsupported(u::Unsupported) =
-    error("TOML.print (WasmCompat, Wasm): ", u.kind, " of a type the closed-world printer does not ",
-        "know; supported are the types of WasmCompatTOMLExt.SCALAR_TYPES, TABLE_TYPES, ARRAY_TYPES")
+@noinline unsupported(u::Unsupported, @nospecialize(x)) =
+    error("TOML.print (WasmCompat, Wasm): ", u.kind, " of type ", typeof(x), ", which the closed-world printer ",
+        "does not know; supported are the types of WasmCompatTOMLExt.SCALAR_TYPES, TABLE_TYPES, ARRAY_TYPES")
 
 # `g(x)` with `x` of its concrete type
 @eval @inline function with_value(g::G, @nospecialize(x)) where {G}
-    return $(isa_chain(:x, (SCALAR_TYPES..., TABLE_TYPES..., ARRAY_TYPES...), :g, :(unsupported(Unsupported("a value")))))
+    return $(isa_chain(:x, (SCALAR_TYPES..., TABLE_TYPES..., ARRAY_TYPES...), :g, :(unsupported(Unsupported("a value"), x))))
 end
 @eval @inline function with_table(g::G, @nospecialize(x)) where {G}
-    return $(isa_chain(:x, TABLE_TYPES, :g, :(unsupported(Unsupported("a table")))))
+    return $(isa_chain(:x, TABLE_TYPES, :g, :(unsupported(Unsupported("a table"), x))))
 end
 @eval @inline function with_array(g::G, @nospecialize(x)) where {G}
-    return $(isa_chain(:x, ARRAY_TYPES, :g, :(unsupported(Unsupported("an array")))))
+    return $(isa_chain(:x, ARRAY_TYPES, :g, :(unsupported(Unsupported("an array"), x))))
 end
 
 # `Printer.to_toml_value` with the conversion function specialized on
@@ -87,7 +89,7 @@ end
 # the value as `print_table` and `printvalue` use it: converted by `f` if it is not a TOML value
 @eval function valid_value(f::F, @nospecialize(value)) where {F}
     is_valid(value) && return value
-    return $(isa_chain(:value, CONVERTED_TYPES, :(v -> converted(f, v)), :(unsupported(Unsupported("a value to convert")))))
+    return $(isa_chain(:value, CONVERTED_TYPES, :(v -> converted(f, v)), :(unsupported(Unsupported("a value to convert"), value))))
 end
 
 is_table(@nospecialize(value)) = value isa AbstractDict
