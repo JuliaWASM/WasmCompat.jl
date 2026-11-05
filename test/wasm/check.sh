@@ -8,7 +8,9 @@ D=$(cd "$(dirname "$0")" && pwd); n=$1; export EXT=${2:-}
 O=${OUT:-$D/out}/$n; W=$O/work; mkdir -p $O
 $JULIA --startup-file=no $D/build.jl $D/$n.jl $O/$n.wasm > $O/build.log 2>&1 || { tail -20 $O/build.log; exit 1; }
 rm -rf $W; mkdir -p $W
+# (LIBGIT2: an empty home for both runs, so that the user's git configuration is not read natively)
+[ "${LIBGIT2:-0}" = 1 ] && export HOME=$O/home && rm -rf $HOME && mkdir -p $HOME
 WORK=$W $JULIA --startup-file=no -e "include(\"$D/$n.jl\"); rc = Prog.main(); print(\"\n[main returned \$rc]\n\")" > $O/native.txt 2>&1
 rm -rf $W; mkdir -p $W
-$NODE --no-warnings $D/run.mjs $O/$n.wasm $W WORK=$W > $O/wasm.txt 2>&1
+$NODE --no-warnings ${NODE_FLAGS:-} $D/run.mjs $O/$n.wasm $W WORK=$W ${WASM_ENV:-} > $O/wasm.txt 2>&1
 diff $O/native.txt $O/wasm.txt && echo "$n: IDENTICAL" || echo "$n: DIFFERENT (see above)"

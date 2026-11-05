@@ -1,14 +1,17 @@
 # julia --project=env build.jl PROG.jl OUT.wasm   compile PROG.jl's `Prog.main` for WASI with WasmCodegen.
 # ENV: COMPAT=0 builds without WasmCompat loaded; TRIM (safe), VERIFY (warn), EXT (comma-separated host extensions);
-# PCRE2=1 builds with Base's Regex on PCRE2 (`WasmCompat.pcre2_config`), and copies the PCRE2 module next to OUT.wasm
+# PCRE2=1 builds with Base's Regex on PCRE2 (`WasmCompat.pcre2_config`), and copies the PCRE2 module next to OUT.wasm;
+# LIBGIT2=1 builds with LibGit2 on libgit2 (`WasmCompat.libgit2_config`), and copies the libgit2 module next to OUT.wasm
 using WasmCodegen, TOML, Logging, Tar, ArgTools, Artifacts, Dates
 compat = get(ENV, "COMPAT", "1") == "1"
 pcre2 = get(ENV, "PCRE2", "0") == "1"
 pcre2 && @eval using PCRE2_wasm_jll
+libgit2 = get(ENV, "LIBGIT2", "0") == "1"
+libgit2 && @eval using LibGit2, LibGit2_wasm_jll
 compat && @eval using WasmCompat
 if compat
     for e in (:WasmCompatCoreExt, :WasmCompatTOMLExt, :WasmCompatLoggingExt, :WasmCompatTarExt, :WasmCompatArgToolsExt, :WasmCompatArtifactsExt,
-              :WasmCompatPCRE2Ext)
+              :WasmCompatPCRE2Ext, :WasmCompatLibGit2Ext)
         println("extension ", e, ": ", Base.get_extension(WasmCompat, e) !== nothing)
     end
 end
@@ -19,6 +22,10 @@ cfg = WasmCodegen.Config(; host = :wasi, host_extensions = exts, trim, verify, o
 if pcre2
     cfg = WasmCompat.pcre2_config(cfg)
     cp(WasmCompat.pcre2_module(), joinpath(dirname(abspath(ARGS[2])), "libpcre2-8.wasm"); force = true)
+end
+if libgit2
+    cfg = WasmCompat.libgit2_config(cfg)
+    cp(WasmCompat.libgit2_module(), joinpath(dirname(abspath(ARGS[2])), "libgit2.wasm"); force = true)
 end
 t = time()
 c = try
