@@ -484,7 +484,7 @@ function write_result(impl, name, ok, checks, elapsed; rundir = "")
     mkpath(d)
     exits = isdir(joinpath(rundir, "out")) ? command_outputs(rundir)[1] : Int[]
     r = Dict{String, Any}("scenario" => name, "impl" => impl, "equivalent" => ok, "elapsed_s" => elapsed,
-                          "exits" => exits, "expect_exit" => get(SCENARIOS[name], "expect_exit", Int[]),
+                          "exits" => exits, "expect_exit" => get(get(SCENARIOS, name, Dict{String, Any}()), "expect_exit", Int[]),
                           "failed_checks" => [c.name for c in checks if !c.ok])
     open(io -> TOML.print(io, r; sorted = true), joinpath(d, "$impl-$name.toml"), "w")
 end
