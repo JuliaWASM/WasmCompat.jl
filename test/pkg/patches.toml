@@ -144,12 +144,12 @@ paths = ["src"]
 [[Pkg.patch]]
 name = "Pkg.jl trim-outline-error-logs (release-1.13 backport)"
 # logging on error paths out of line; branch trim-outline-error-logs on pankgeorg/Pkg.jl
-# (master, 27aa0055), not yet a PR
+# (master, 2787607c; includes the GitTools clone/fetch fix), not yet a PR
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-outline-error-logs-r2"
+branch = "bp13/trim-outline-error-logs-r3"
 from_parent = true
 from = "7520e65ea75db64db7cecb8be7cd66c1041899ad"
-to = "3720bacac3ac5005920e5acd6cc2aa25ee957419"
+to = "df26c9425e9adfe2c5c94b1d7d2edb7df22e285e"
 paths = ["src"]
 
 # WasmCodegen: main, no patches (it has gbaraldi/WasmCodegen.jl#68 and #71).
