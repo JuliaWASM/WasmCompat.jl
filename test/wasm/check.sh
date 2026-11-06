@@ -11,8 +11,9 @@
 set -u
 D=$(cd "$(dirname "$0")" && pwd); n=$1; export EXT=${2:-}
 O=${OUT:-$D/out}/$n; W=$O/work; mkdir -p $O
-# (LIBGIT2: an empty home for both runs, so that the user's git configuration is not read natively)
-[ "${LIBGIT2:-0}" = 1 ] && export HOME=$O/home
+# (LIBGIT2: an empty home for both runs, so that the user's git configuration is not read natively; Julia keeps the
+# depot of the real home)
+if [ "${LIBGIT2:-0}" = 1 ]; then export JULIA_DEPOT_PATH=${JULIA_DEPOT_PATH:-$HOME/.julia:}; export HOME=$O/home; fi
 if [ "${NO_BUILD:-0}" != 1 ]; then
   $JULIA --startup-file=no $D/build.jl $D/$n.jl $O/$n.wasm > $O/build.log 2>&1 || { tail -20 $O/build.log; exit 1; }
   rm -rf $W; mkdir -p $W
