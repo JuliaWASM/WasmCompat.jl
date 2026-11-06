@@ -13,7 +13,8 @@
 # --out    outputs (default test/pkg/out): module/pkgentry.wasm (+ libpcre2-8.wasm, libgit2.wasm
 #          beside it), module/pkgentry.wasm.build.toml (the build report), build-env/, and the
 #          relocation test's sentinel/ and relocation-cache/
-# --patch  extra patch files (`Config(extra_patches)`; they see the shim module by its name and `Pkg`)
+# --patch  extra patch files (`Config(extra_patches)`; they see the shim module by its name and `Pkg`),
+#          after test/pkg/patches/*.jl (the harness's patches, always applied, in name order)
 # --load   extra packages, added to the build environment and loaded before compiling
 #
 # The build runs in a generated environment whose [sources] point at the checkouts and at this
@@ -66,6 +67,9 @@ function parse_args(args)
     for n in SOURCES
         isfile(joinpath(o["work"], n * ".jl", "Project.toml")) || error("no $n checkout in $(o["work"]) (run apply_patches.jl)")
     end
+    pd = joinpath(HERE, "patches")
+    harness = isdir(pd) ? sort!(filter(f -> endswith(f, ".jl"), readdir(pd; join = true))) : String[]
+    o["patches"] = [harness; o["patches"]]
     for p in o["patches"]
         isfile(p) || error("patch file $p does not exist")
     end

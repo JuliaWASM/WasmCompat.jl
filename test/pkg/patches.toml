@@ -68,8 +68,8 @@ name = "JuliaLang/Pkg.jl#4899 trim-instantiate-checks"
 pr = "JuliaLang/Pkg.jl#4899"
 repo = "https://github.com/pankgeorg/Pkg.jl"
 merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
-from = "94507afdeab9ff0d7b201326f59841cd27832048"
-to = "ffa4e4b4131f99b321915a9183cc475cc5b75df6"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "24e08dbcbfb2bea2fef33374f77f3cebca48141b"
 paths = ["src"]
 
 [[Pkg.patch]]
@@ -77,8 +77,8 @@ name = "JuliaLang/Pkg.jl#4910 trim-resolve-containers"
 pr = "JuliaLang/Pkg.jl#4910"
 repo = "https://github.com/pankgeorg/Pkg.jl"
 merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
-from = "94507afdeab9ff0d7b201326f59841cd27832048"
-to = "8c22772344ca029cad83cd7c8aa7c338cea64103"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "a57186134b37f5e1e7090dfabbaa8c2f4e45058c"
 paths = ["src"]
 
 [[Pkg.patch]]
@@ -87,20 +87,28 @@ pr = "JuliaLang/Pkg.jl#4915"
 repo = "https://github.com/pankgeorg/Pkg.jl"
 merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
 from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
-to = "d1f51ec89cbcf75568a74ad447371483160b96e4"
+to = "bbdbc77d6a57e3c830d91ac498b5d77259c1b690"
 paths = ["src"]
 
-# WasmCodegen: main (gbaraldi/WasmCodegen.jl#68, Core.apply_type and new of types known only
-# at run time, is merged: 298f5b2).
+# WasmCodegen: main, no patches (it has gbaraldi/WasmCodegen.jl#68 and #71).
 [WasmCodegen]
 repo = "https://github.com/gbaraldi/WasmCodegen.jl"
 branch = "main"
-sha = "298f5b23cbe96711bc5bd708074753e9c2764930"
+sha = "0034569817c5ddf1b7d1836df38f1b3d6bb00460"
 
-# WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them (resolved
-# after WasmCodegen is patched; a branch is resolved to its current commit, which is printed).
+# WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them (a branch is resolved to its current commit, which is printed).
 [WasmBuilder]
 from_sources_of = "WasmCodegen"
+
+# gbaraldi/WasmBuilder.jl#2 until it is merged: without it, a module can't link the pcre2 and
+# libgit2 import modules. (Pinned at 34d78df; the PR's head has a later commit, ae636ff.)
+[[WasmBuilder.patch]]
+name = "gbaraldi/WasmBuilder.jl#2 structural-functypes"
+pr = "gbaraldi/WasmBuilder.jl#2"
+repo = "https://github.com/pankgeorg/WasmBuilder.jl"
+merge_base_with = "https://github.com/gbaraldi/WasmBuilder.jl main"
+from = "e4e320f97f516da876ea20a0eeec9a1b50bf9a9e"
+to = "34d78dfd8564bc6aae2729ac39cec00b73179035"
 
 [IRStructurizer]
 from_sources_of = "WasmCodegen"
