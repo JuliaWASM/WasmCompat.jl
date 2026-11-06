@@ -184,7 +184,16 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   arguments using the native methods (see `WasmCodegen.Runtime.@wasm_method`). Each overlay here
   therefore reads state or performs I/O. For example, the Logging extension reads its logger from a
   global rather than constructing it.
-- **`Tar.list` traps at run time** in a standalone test program on WasmCodegen r2 (a null dereference after `Tar.create` succeeds), and the cause is not yet known. `Tar.extract`, `read_tarball` and `tree_hash`, as a package manager uses them, run correctly in a full program on the same stack.
+- **`Tar.list` reads an undefined value at run time** (a null dereference, with no build diagnostic). `Tar.iterate_headers`,
+  which `Tar.list` runs, jumps into its `while` loop with `@goto` (an irreducible loop), and Base's `hasmethod` checks
+  of the callback are loops between that label and the use of the header. IRStructurizer, which WasmCodegen
+  structures functions with, takes such a nested loop for an entry of the irreducible one and carries the header
+  as undefined through it. This is a code-generation issue, not one of this package: with IRStructurizer fixed,
+  `tar.jl` is identical to native in Node and in Bun. `Tar.extract`, `read_tarball` and `tree_hash` do not use
+  `iterate_headers`.
+- **`Tar.extract` sets file modes**, so a program that extracts needs a host with file modes: WasmCodegen's
+  `julia_io` host extension (`host_extensions = [:julia_io]`, `js/julia_io.mjs`'s path imports). Without it,
+  `chmod` fails with ENOTSUP (WASI preview 1 has no modes) and `Tar.extract` throws an `IOError`.
 - **Tar's error messages** use a regex (`read_standard_header`), so programs that hit them need a
   regex engine: the PCRE2 extension (see *Regex*).
 
