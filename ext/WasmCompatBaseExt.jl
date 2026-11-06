@@ -24,6 +24,12 @@ unsupported construct as a function that traps):
   catch_backtrace())`, a tuple of a value of a type not known at compile time, which WasmCodegen
   does not compile: every function that makes a temporary directory traps. Here the failure is
   logged by a function of its own, so only a failed cleanup reaches the unsupported construct.
+- **`sprint(showerror, e)`** of a caught exception (of a type not known at compile time): the call
+  packs `e` in a `Tuple{Any}` for `sprint`'s varargs, which WasmCodegen does not compile, so every
+  function that shows a caught error traps. The overlay takes `e` as one argument and shows it as
+  WasmCompat's `showerror_hook` does, else as WasmCodegen's runtime does
+  (`Runtime.Host.error_text`: the `showerror` of the exception's type where the module can
+  compile it, else the text of Base's usual exceptions).
 - **`gethostname`.** WASI has no host name: `"localhost"`.
 - **`Base.generating_output()`** asks the runtime whether the process is writing a code cache
   (`ccall(:jl_generating_output)`, which WasmCodegen does not compile). A compiled program never
@@ -36,6 +42,7 @@ unsupported construct as a function that traps):
 module WasmCompatBaseExt
 
 import WasmCodegen
+import WasmCompat
 using Base.ScopedValues: AbstractScopedValue, hasdefault, getdefault
 using Base: AnnotatedIOBuffer
 
@@ -136,6 +143,13 @@ end
 const SHA1_TYPE_HASH = Base._jl_type_hash(Base.SHA1)
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS Base.hash(a::Base.SHA1, h::UInt) =
     hash((SHA1_TYPE_HASH, a.bytes), h)
+
+## `sprint(showerror, e)` of an exception of a type not known at compile time
+Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function Base.sprint(::typeof(showerror), @nospecialize(e))
+    io = IOBuffer()
+    WasmCompat.showerror_hook(io, e) && return String(take!(io))
+    return WasmCodegen.Runtime.Host.error_text(e)
+end
 
 ## No host name in WASI
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS Base.Libc.gethostname() = "localhost"
