@@ -2,7 +2,7 @@
 #
 #   julia test/pkg/build.jl [--shim DIR] [--work DIR] [--out DIR] [--patch FILE ...] [--load DIR ...]
 #                           [--trim safe|unsafe] [--verify error|warn|off] [--tasks none|jspi]
-#                           [--setup-only]
+#                           [--wasm-opt "-O3 -g"] [--setup-only]
 #
 # --shim   the entry shim package (default test/pkg/shim/<the one package there>): its module
 #          defines `pkgentry_abi_version()`, `pkgentry_init()` and `pkgentry_main()` (each
@@ -17,6 +17,8 @@
 #          after test/pkg/patches/*.jl and <shim>/../build-patches/*.jl (the harness's and the
 #          shim's patches, always applied, each in name order)
 # --load   extra packages, added to the build environment and loaded before compiling
+# --wasm-opt  Binaryen's wasm-opt options (`Config(optimize)`; default "-O3 -g": optimized, with
+#          the name section kept for trap stacks). Always optimized: they must include -O3.
 #
 # The build runs in a generated environment whose [sources] point at the checkouts and at this
 # repository (WasmCompat). Before the shim is loaded, the environment-derived inputs are set to
@@ -38,7 +40,7 @@ const SOURCES = ["WasmCodegen", "WasmBuilder", "IRStructurizer", "WasmHost", "Pk
 function parse_args(args)
     o = Dict{String, Any}("work" => joinpath(HERE, "work"), "out" => joinpath(HERE, "out"), "patches" => String[],
                           "load" => String[], "trim" => "unsafe", "verify" => "warn", "tasks" => "jspi",
-                          "setup_only" => false)
+                          "setup_only" => false, "wasm_opt" => "-O3 -g")
     i = 1
     val() = (i < length(args) || error("$(args[i]) needs a value"); i += 1; args[i])
     while i <= length(args)
@@ -51,6 +53,7 @@ function parse_args(args)
         elseif a == "--trim"; o["trim"] = val()
         elseif a == "--verify"; o["verify"] = val()
         elseif a == "--tasks"; o["tasks"] = val()
+        elseif a == "--wasm-opt"; o["wasm_opt"] = val()
         elseif a == "--setup-only"; o["setup_only"] = true
         else error("unknown argument $a")
         end
@@ -256,6 +259,7 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
         pre_image_hooks = hooks,
         trim = Symbol(o["trim"]), verify = Symbol(o["verify"]),
         tasks = Symbol(o["tasks"]),
+        optimize = Cmd(String.(split(o["wasm_opt"]))),
         on_unsupported = o["trim"] == "safe" ? :error : :trap,
         extra_patches = o["patches"], patch_bindings = Pair{Symbol, Any}[nameof(S) => S, :Pkg => P])
     # Base's Regex on PCRE2 and LibGit2 on libgit2, both compiled to Wasm (WasmCompat's
