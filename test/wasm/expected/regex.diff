@@ -1,0 +1,4 @@
+66c66
+< (?R): PCRE.exec error: JIT stack limit reached
+---
+> (?R): PCRE.exec error: nested recursion at the same subject position

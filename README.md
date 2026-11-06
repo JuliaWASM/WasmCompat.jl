@@ -78,7 +78,8 @@ program, and gives its exports as the import module `"pcre2"`; `js/pcre2.mjs` do
 
 ```js
 import { pcre2Imports } from './pcre2.mjs';
-const imports = { ...wasi.getImportObject(), ...(await pcre2Imports(fs.readFileSync('libpcre2-8.wasm'))) };
+import { wasiImportObject, wasiInitialize } from './wasi.mjs';   // node:wasi on Node and on Bun
+const imports = { ...wasiImportObject(wasi), ...(await pcre2Imports(fs.readFileSync('libpcre2-8.wasm'))) };
 ```
 
 The program copies patterns and subjects into the PCRE2 module's memory and copies results back. What Base holds
@@ -146,7 +147,7 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   non-executable). No ssh, no credential helpers.
 - **Not in Wasm:** non-fast-forward `merge!`, `merge!` of FETCH_HEAD, `CheckoutOptions(paths)`. Pkg uses none.
 - **Node 24:** run Node with `--no-turbo-fast-api-calls`: a node:wasi call that allocates while on a JSPI stack can
-  abort the process (`Check failed: isolate_->IsOnCentralStack()`).
+  abort the process (`Check failed: isolate_->IsOnCentralStack()`). Bun needs no flag.
 - **Size:** the libgit2 module is about 1.1 MB, 380 KB gzipped (920 KB after `wasm-opt -Oz`).
 
 ## Differences from native, by design
@@ -199,6 +200,7 @@ filesystem (a browser's WASI shim must give both instances the same directory ob
 | Host | Status |
 |---|---|
 | Node.js 24 (`node:wasi`) | **Tested**: `test/wasm/` compares each program's output with native Julia's |
+| Bun 1.4 (`node:wasi`, JavaScriptCore) | **Tested**: the same `test/wasm/` runs (`WASM_RUNTIME=bun`); each output is the same as on Node. Bun's `node:wasi` has no `getImportObject()`/`initialize()`: `js/wasi.mjs` stands in for both |
 | Browsers (a JS WASI shim) | Untested |
 | Cloudflare workerd | Untested |
 | wasmtime | Untested |
@@ -208,8 +210,8 @@ filesystem (a browser's WASI shim must give both instances the same directory ob
 - `test/runtests.jl` (native): the typed TOML printer against `TOML.print`, byte for byte, on fixed
   and random tables; the Wasm logger's records against `ConsoleLogger`'s; the regex-free version
   check against the regex; that every overlay is present; and the PCRE2 configuration, module and version.
-- `test/wasm/` (needs Node 24): one small program per extension, compiled with `trim = :safe` and run
-  on Node's WASI. `check.sh` diffs each program's output with native Julia's. With `PCRE2=1`, `regex.jl` (Base's
+- `test/wasm/` (needs Node 24 or Bun 1.4): one small program per extension, compiled with `trim = :safe` (and
+  optimized by `wasm-opt -O3`) and run on `node:wasi` in Node or Bun (`WASM_RUNTIME=node|bun`, or both). `check.sh` diffs each program's output with native Julia's. With `PCRE2=1`, `regex.jl` (Base's
   Regex API, compile errors, PCRE-only constructs, Pkg's semver patterns on every `[compat]` range of the General
   registry, Tar's path checks) and `corpus.jl` (69 patterns through `eachmatch`, `keys` and `replace`) run on PCRE2.
   With `LIBGIT2=1 PCRE2=1`, `git.jl` runs the operations Pkg performs through `LibGit2` on repositories it makes

@@ -1,0 +1,128 @@
+# The programs of test/wasm/ compiled to WebAssembly by WasmCodegen and run on WASI in Node and in Bun,
+# each run diffed with the same program run natively (test/wasm/check.sh; expected differences in
+# test/wasm/expected/). The module and the native output are built once per program, then run in each runtime.
+name: Wasm checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JULIA_VERSION: '1.13.2'
+  NODE_VERSION: '24'
+  BUN_VERSION: '1.4.4'
+
+jobs:
+  build:
+    name: Build ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # (a build may fail only where the matrix documents why: `allow_failure` with its `reason`)
+    continue-on-error: ${{ matrix.allow_failure == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { check: corpus, pcre2: '1', libgit2: '0' }
+          - { check: regex, pcre2: '1', libgit2: '0' }
+          - { check: tar, pcre2: '1', libgit2: '0' }
+          - { check: toml, pcre2: '0', libgit2: '0', allow_failure: true, reason: 'does not build with trim = :safe: WasmCompatTOMLExt.unsupported passes typeof(x) through error() varargs (WasmCodegen: a tuple of abstract type)' }
+          - { check: logging, pcre2: '0', libgit2: '0' }
+          - { check: artifacts, pcre2: '0', libgit2: '0' }
+          - { check: git, pcre2: '1', libgit2: '1' }
+    env:
+      JULIA_PROJECT: test
+      PCRE2: ${{ matrix.pcre2 }}
+      LIBGIT2: ${{ matrix.libgit2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ env.JULIA_VERSION }}
+      - uses: julia-actions/cache@v2
+        with:
+          cache-name: wasm-build-v1
+      - name: Instantiate test/Project.toml
+        run: julia --startup-file=no -e 'using Pkg; Pkg.instantiate(); Pkg.status()'
+      - name: Build the module and the native output (check.sh with no runtime)
+        run: |
+          if [ -n "${{ matrix.reason }}" ]; then echo "::notice::${{ matrix.check }}: ${{ matrix.reason }}"; fi
+          set -o pipefail
+          export JULIA=julia
+          export WCG_JS="$(julia --startup-file=no -e 'using WasmCodegen; print(joinpath(pkgdir(WasmCodegen), "js"))')"
+          WASM_RUNTIME= ./test/wasm/check.sh ${{ matrix.check }}
+          grep -E '^(optimize|compiled|verifier|COMPILE)' test/wasm/out/${{ matrix.check }}/build.log
+          cp -r "$WCG_JS" test/wasm/out/${{ matrix.check }}/wcg-js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.check }}
+          path: |
+            test/wasm/out/${{ matrix.check }}/
+            !test/wasm/out/${{ matrix.check }}/work/
+          retention-days: 7
+
+  run:
+    name: ${{ matrix.check }} on ${{ matrix.runtime }}
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A run may fail only where the matrix documents it (`allow_failure`, with its `reason`); a run may skip (an engine
+    # gap that js/engine.mjs names) only where the matrix documents the gap (`allow_skip`, with its `reason`).
+    # No Bun-specific entry is needed for Bun 1.4.4 (JSPI, WasmGC and try_table are all there): every entry below is a
+    # known failure on both runtimes, the same in each, not an engine gap.
+    continue-on-error: ${{ matrix.allow_failure == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [corpus, regex, tar, toml, logging, artifacts, git]
+        runtime: [node, bun]
+        include:
+          - { check: git, libgit2: '1' }
+          - { check: tar, runtime: node, allow_failure: true, reason: 'README, known limits: tar.jl traps at Tar.list (both runtimes, the same trap)' }
+          - { check: tar, runtime: bun, allow_failure: true, reason: 'README, known limits: tar.jl traps at Tar.list (both runtimes, the same trap)' }
+          - { check: logging, runtime: node, allow_failure: true, reason: 'traps (unreachable) after 22 identical lines, on both runtimes; and log locations print @WasmCompat/... (known on main)' }
+          - { check: logging, runtime: bun, allow_failure: true, reason: 'traps (unreachable) after 22 identical lines, on both runtimes; and log locations print @WasmCompat/... (known on main)' }
+          - { check: toml, runtime: node, allow_failure: true, reason: 'its module does not build (see the build job)' }
+          - { check: toml, runtime: bun, allow_failure: true, reason: 'its module does not build (see the build job)' }
+    env:
+      LIBGIT2: ${{ matrix.libgit2 || '0' }}
+      WASM_ALLOW_SKIP: ${{ matrix.allow_skip == true && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-${{ matrix.check }}
+          path: test/wasm/out/${{ matrix.check }}
+      - if: matrix.runtime == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Run in ${{ matrix.runtime }} and diff with the native output
+        run: |
+          set -o pipefail
+          export WCG_JS="$PWD/test/wasm/out/${{ matrix.check }}/wcg-js"
+          ${{ matrix.runtime }} --version
+          if [ -n "${{ matrix.reason }}" ]; then echo "::notice::${{ matrix.check }} on ${{ matrix.runtime }}: ${{ matrix.reason }}"; fi
+          NO_BUILD=1 WASM_RUNTIME=${{ matrix.runtime }} NODE_FLAGS=--no-turbo-fast-api-calls ./test/wasm/check.sh ${{ matrix.check }} | tee result.txt
+          { echo "### ${{ matrix.check }} on ${{ matrix.runtime }}"; grep -E '^${{ matrix.check }} \(' result.txt; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: output-${{ matrix.check }}-${{ matrix.runtime }}
+          path: |
+            test/wasm/out/${{ matrix.check }}/wasm*.txt*
+          retention-days: 7
