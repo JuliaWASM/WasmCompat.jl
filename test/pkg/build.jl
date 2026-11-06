@@ -347,8 +347,9 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
         report["cache_poison_root"] = cache_poison_root(o)
         # log-macro source paths (`.jl` files of the checked-out source trees) are exempt and
         # reported separately; every other build-host string is flagged
-        roots = [joinpath(o["work"], "Pkg.jl"), joinpath(o["work"], "WasmHost.jl"), joinpath(REPO, "src"), joinpath(REPO, "ext"),
-                 o["shim"], Sys.STDLIB]
+        # (every checked-out source tree compiled into the module: the work dir's checkouts, this
+        # repository's src/ and ext/, the shim, the standard library)
+        roots = [[joinpath(o["work"], n * ".jl") for n in SOURCES]; joinpath(REPO, "src"); joinpath(REPO, "ext"); o["shim"]; Sys.STDLIB]
         report["exempt_source_roots"] = roots
         try
             fm, flagged, ignored = classify_host_strings(o["module"], report["host_markers"], roots)
