@@ -538,11 +538,15 @@ function relocation(; wasm, names = ["S-status", "S-resolve", "S-rm", "S-add", "
     before == after || push!(d, "sentinel dirs changed: $(setdiff(collect(before), collect(after)))")
     if isfile(rep0)
         r = TOML.parsefile(rep0)
-        haskey(r, "wasm_dis") && (ENV["WASM_DIS"] = r["wasm_dis"])
-        # rescan the module itself (decoded GC byte arrays + raw bytes) with the build's markers
-        for (k, what) in (("host_markers", "build-host strings"), ("poison_markers", "build-time poisoned Pkg state"))
+        # the build's scan of the module (decoded GC byte arrays + raw bytes) for its markers;
+        # rescanned here when the build's wasm-dis exists on this machine (it may not: CI runs
+        # the relocation test on another runner)
+        rescan = isfile(get(r, "wasm_dis", ""))
+        rescan && (ENV["WASM_DIS"] = r["wasm_dis"])
+        for (k, f, what) in (("host_markers", "embedded_host_strings", "build-host strings"),
+                             ("poison_markers", "poison_strings_found", "build-time poisoned Pkg state"))
             haskey(r, k) || (push!(d, "build report lacks $k"); continue)
-            hits = scan_markers(wasm, r[k])
+            hits = rescan ? scan_markers(wasm, r[k]) : get(r, f, ["build report lacks $f"])
             isempty(hits) || push!(d, "module embeds $what: $(hits)")
         end
         p = get(r, "poisoned", String[])
