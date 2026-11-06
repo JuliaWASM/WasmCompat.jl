@@ -27,7 +27,7 @@ around and never dereferences. Two mechanisms carry `LibGit2`'s calls to the mod
   names in the error message), `commit` (no splat), and `close` of the handle types (`LibGit2` names
   `git_<type>_free` with a `String`, which `foreign_functions` does not match).
 
-libgit2 calls no Julia callback here: `credentials_cb()` and `certificate_cb()` are null,
+libgit2 calls no Julia callback here: `credentials_cb()`, `certificate_cb()` and `fetchhead_foreach_cb()` are null,
 `RemoteCallbacks(::Callbacks)` drops the callbacks, and the credential payload has nothing to approve or
 reject. Remotes are public https (TLS is the host's) and local paths; a remote that asks for
 credentials is libgit2's `EAUTH` error ("remote authentication required but no callback set"), and
@@ -475,6 +475,7 @@ const FUNCTIONS = Pair{Tuple{Symbol,String},Any}[(f, LIB) => getfield(@__MODULE_
 
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS LibGit2.credentials_cb() = C_NULL
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS LibGit2.certificate_cb() = C_NULL
+Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS LibGit2.fetchhead_foreach_cb() = C_NULL
 
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function LibGit2.initialize()
     LibGit2.@check ccall((:git_libgit2_init, LIB), Cint, ())
