@@ -27,6 +27,9 @@ if libgit2
     cfg = WasmCompat.libgit2_config(cfg)
     cp(WasmCompat.libgit2_module(), joinpath(dirname(abspath(ARGS[2])), "libgit2.wasm"); force = true)
 end
+# (tests run on optimized modules only: wasm-opt -O3, WasmCodegen's default)
+cfg.optimize === nothing && error("build.jl: Config(optimize = nothing): the checks run on modules optimized by wasm-opt only")
+println("optimize: wasm-opt ", join(cfg.optimize.exec, ' '))
 t = time()
 c = try
     WasmCodegen.compile([WasmCodegen.Entry(Prog.main, (); name = "main")]; config = cfg)
