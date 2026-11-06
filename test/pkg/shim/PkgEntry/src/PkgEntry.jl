@@ -22,11 +22,6 @@ import Pkg
 using Pkg: Types, API, Registry, REPLMode, PlatformEngines, GitTools, Resolve
 using Pkg.Types: PackageSpec
 
-# The build environment's [preferences.PkgEntry] `target`: "wasm" when building the module
-const UUID_SELF = Base.UUID("d958b040-637e-4c2b-b683-2a13a219bdfc")
-const TARGET = (Base.record_compiletime_preference(UUID_SELF, "target");
-                Symbol(get(Base.get_preferences(UUID_SELF), "target", "native")::String))
-
 """
     init_runtime()
 
@@ -184,10 +179,10 @@ function report_error(@nospecialize(e))
     return nothing
 end
 
-# `showerror(io, e)` of the errors the commands throw, told apart by type (natively the same
-# text): in Wasm the exception's type is not known at compile time.
+# `showerror(io, e)` of the errors the commands throw, told apart by type (the same text as
+# `showerror`): in Wasm the exception's type is not known at compile time, and `showerror(io, e)`
+# of it is a dynamic call. Other exceptions go to `show_other_error`, a function of its own.
 function show_error(io::IO, @nospecialize(e))
-    TARGET === :wasm || return showerror(io, e)
     if e isa Types.PkgError
         print(io, e.msg)
     elseif e isa Resolve.ResolverError
@@ -206,10 +201,11 @@ function show_error(io::IO, @nospecialize(e))
     elseif e isa Base.TOML.ParserError
         showerror(io, e)
     else
-        print(io, "an error that this build cannot print")
+        show_other_error(io, e)
     end
     return nothing
 end
+@noinline show_other_error(io::IO, @nospecialize(e)) = showerror(io, e)
 message_text(@nospecialize(m)) = m isa String ? m : m isa SubString{String} ? String(m) : "(a message this build cannot print)"
 
 end # module PkgEntry
