@@ -345,14 +345,36 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
         report["host_markers"] = host_markers(o, env)
         report["poison_markers"] = [POISON_MARKERS; joinpath(cache_poison_root(o), "depot", "registries", "General")]
         report["cache_poison_root"] = cache_poison_root(o)
-        report["embedded_host_strings"] = try scan_markers(o["module"], report["host_markers"]) catch e; ["scan failed: " * sprint(showerror, e)] end
+        # log-macro source paths (`.jl` files of the checked-out source trees) are exempt and
+        # reported separately; every other build-host string is flagged
+        roots = [joinpath(o["work"], "Pkg.jl"), joinpath(o["work"], "WasmHost.jl"), joinpath(REPO, "src"), joinpath(REPO, "ext"),
+                 o["shim"], Sys.STDLIB]
+        report["exempt_source_roots"] = roots
+        try
+            fm, flagged, ignored = classify_host_strings(o["module"], report["host_markers"], roots)
+            report["embedded_host_strings"] = fm
+            report["embedded_host_strings_flagged"] = first(flagged, 200)
+            report["ignored_source_paths"] = ignored
+            report["ignored_source_paths_count"] = length(ignored)
+        catch e
+            report["embedded_host_strings"] = ["scan failed: " * sprint(showerror, e)]
+        end
         report["poison_strings_found"] = try scan_markers(o["module"], report["poison_markers"]) catch e; ["scan failed: " * sprint(showerror, e)] end
     end
     open(io -> TOML.print(io, report; sorted = true), o["module"] * ".build.toml", "w")
     println("build $status in $(elapsed)s; report: $(o["module"]).build.toml")
-    for k in ("optimize", "size_bytes", "diagnostics_count", "verifier_errors", "verifier_warnings", "maxrss_mib", "embedded_host_strings", "poison_strings_found")
+    for k in ("optimize", "size_bytes", "diagnostics_count", "verifier_errors", "verifier_warnings", "maxrss_mib", "embedded_host_strings",
+              "poison_strings_found", "ignored_source_paths_count")
         haskey(report, k) && println("  ", k, " = ", report[k])
     end
+    for x in first(get(report, "embedded_host_strings_flagged", String[]), 20)
+        println("  flagged_host_string = ", repr(x))
+    end
+    ign = get(report, "ignored_source_paths", String[])
+    for x in first(ign, 30)
+        println("  ignored_source_path = ", x)
+    end
+    length(ign) > 30 && println("  ignored_source_path = ... ($(length(ign) - 30) more in the build report)")
     status == "ok" || println(stderr, err, "\n", err_bt)
     return status == "ok" ? 0 : 1
 end
