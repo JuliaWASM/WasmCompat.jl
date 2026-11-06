@@ -294,7 +294,11 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
     elapsed = round(time() - t0; digits = 1)
 
     binaryen = get(Base.loaded_modules, Base.PkgId(Base.UUID("a54ac8ab-712d-5a0e-8e11-9296c0d3c20e"), "Binaryen_jll"), nothing)
-    wasm_dis = binaryen !== nothing && isdefined(binaryen, :wasm_dis_path) ? getfield(binaryen, :wasm_dis_path) : "wasm-dis"
+    # (Binaryen_jll's product is `wasmdis`)
+    wasm_dis = "wasm-dis"
+    for n in (:wasmdis_path, :wasm_dis_path)
+        binaryen !== nothing && isdefined(binaryen, n) && (wasm_dis = getfield(binaryen, n); break)
+    end
     ENV["WASM_DIS"] = wasm_dis
     report = Dict{String, Any}(
         "status" => status, "error" => first(err, 20_000),
