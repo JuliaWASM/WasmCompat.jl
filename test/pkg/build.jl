@@ -265,6 +265,12 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
     cp(Base.invokelatest(WCompat.pcre2_module), joinpath(dirname(o["module"]), "libpcre2-8.wasm"); force = true)
     config = Base.invokelatest(WCompat.libgit2_config, config)
     cp(Base.invokelatest(WCompat.libgit2_module), joinpath(dirname(o["module"]), "libgit2.wasm"); force = true)
+    # Only optimized modules are tested: the final config must run wasm-opt -O3 (never
+    # `optimize = nothing`, never a raw module)
+    opt = getfield(config, :optimize)
+    (opt isa Cmd && "-O3" in opt.exec) ||
+        error("build.jl: Config(optimize) is $(repr(opt)); modules are only tested optimized with wasm-opt -O3")
+    optimize = join(opt.exec, ' ')
 
     t0 = time()
     status, err, comp, err_bt = "ok", "", nothing, ""
@@ -298,11 +304,13 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
                           Dict("WasmCompat" => git_info(REPO), "shim" => git_info(o["shim"]), "patches" => o["patches"],
                                "load" => [git_info(d) for d in o["load"]], "pkg_loaded_from" => o["pkg_loaded_from"])),
         "config" => Dict("trim" => o["trim"], "verify" => o["verify"], "tasks" => o["tasks"], "host" => "wasi",
+                         "optimize" => optimize,
                          "host_extensions" => ["julia_io"]),
         "sentinels" => sentinels(o),
         "poisoned" => poisoned,
         "pre_image_hooks" => hook_report,
         "wasm_dis" => wasm_dis,
+        "optimize" => optimize,
         "elapsed_s" => elapsed, "maxrss_mib" => round(Sys.maxrss() / 2^20; digits = 1))
     isempty(err_bt) || (report["error_backtrace"] = first(err_bt, 60_000))
     if !isempty(failure_diags)
@@ -334,7 +342,7 @@ function build(o, env, WC::Module, WCompat::Module, S::Module, P::Module)
     end
     open(io -> TOML.print(io, report; sorted = true), o["module"] * ".build.toml", "w")
     println("build $status in $(elapsed)s; report: $(o["module"]).build.toml")
-    for k in ("size_bytes", "diagnostics_count", "verifier_errors", "verifier_warnings", "maxrss_mib", "embedded_host_strings", "poison_strings_found")
+    for k in ("optimize", "size_bytes", "diagnostics_count", "verifier_errors", "verifier_warnings", "maxrss_mib", "embedded_host_strings", "poison_strings_found")
         haskey(report, k) && println("  ", k, " = ", report[k])
     end
     status == "ok" || println(stderr, err, "\n", err_bt)
