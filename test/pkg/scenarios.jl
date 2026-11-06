@@ -479,13 +479,15 @@ compare_with_baseline(name, rundir) =
             final_registry = get(SCENARIOS[name], "final_registry", "frozen"))
 
 # One result file per scenario and implementation, for `report`
-function write_result(impl, name, ok, checks, elapsed; rundir = "")
+function write_result(impl, name, ok, checks, elapsed; rundir = "", notes = String[])
     d = joinpath(out_dir(), "results")
     mkpath(d)
     exits = isdir(joinpath(rundir, "out")) ? command_outputs(rundir)[1] : Int[]
     r = Dict{String, Any}("scenario" => name, "impl" => impl, "equivalent" => ok, "elapsed_s" => elapsed,
                           "exits" => exits, "expect_exit" => get(get(SCENARIOS, name, Dict{String, Any}()), "expect_exit", Int[]),
-                          "failed_checks" => [c.name for c in checks if !c.ok])
+                          "failed_checks" => [c.name for c in checks if !c.ok],
+                          "details" => [l for c in checks if !c.ok for l in first(c.detail, 5)],
+                          "notes" => notes)
     open(io -> TOML.print(io, r; sorted = true), joinpath(d, "$impl-$name.toml"), "w")
 end
 
@@ -535,6 +537,7 @@ function relocation(; wasm, names = ["S-status", "S-resolve", "S-rm", "S-add", "
     allok &= ok
     after = snapshot()
     d = String[]
+    notes = String[]
     before == after || push!(d, "sentinel dirs changed: $(setdiff(collect(before), collect(after)))")
     if isfile(rep0)
         r = TOML.parsefile(rep0)
@@ -543,12 +546,22 @@ function relocation(; wasm, names = ["S-status", "S-resolve", "S-rm", "S-add", "
         # the relocation test on another runner)
         rescan = isfile(get(r, "wasm_dis", ""))
         rescan && (ENV["WASM_DIS"] = r["wasm_dis"])
-        for (k, f, what) in (("host_markers", "embedded_host_strings", "build-host strings"),
-                             ("poison_markers", "poison_strings_found", "build-time poisoned Pkg state"))
-            haskey(r, k) || (push!(d, "build report lacks $k"); continue)
-            hits = rescan ? scan_markers(wasm, r[k]) : get(r, f, ["build report lacks $f"])
-            isempty(hits) || push!(d, "module embeds $what: $(hits)")
+        # build-host strings, except log-macro source paths (`.jl` files of the source trees),
+        # which are listed with a count
+        if haskey(r, "host_markers")
+            fm, flagged, ignored = rescan ? classify_host_strings(wasm, r["host_markers"], get(r, "exempt_source_roots", String[])) :
+                (get(r, "embedded_host_strings", ["build report lacks embedded_host_strings"]),
+                 get(r, "embedded_host_strings_flagged", String[]), get(r, "ignored_source_paths", String[]))
+            isempty(fm) || push!(d, "module embeds build-host strings: $(fm)" *
+                                    (isempty(flagged) ? "" : "\n  e.g. " * join(repr.(first(flagged, 10)), "\n  e.g. ")))
+            push!(notes, "ignored $(length(ignored)) log-macro source path(s) (.jl files of the source trees)" *
+                         (isempty(ignored) ? "" : ": " * join(ignored, ", ")))
+        else
+            push!(d, "build report lacks host_markers")
         end
+        hits = haskey(r, "poison_markers") ? (rescan ? scan_markers(wasm, r["poison_markers"]) : get(r, "poison_strings_found", ["build report lacks poison_strings_found"])) :
+               ["build report lacks poison_markers"]
+        isempty(hits) || push!(d, "module embeds build-time poisoned Pkg state: $(hits)")
         p = get(r, "poisoned", String[])
         (length(p) >= 3 && !any(x -> occursin("NOT", x) || occursin("not defined", x), p)) ||
             push!(d, "build was not fully poisoned: $(p)")
@@ -557,7 +570,8 @@ function relocation(; wasm, names = ["S-status", "S-resolve", "S-rm", "S-add", "
     end
     sc = [Check("sentinels", isempty(d), d)]
     ok = report(stdout, sc, String[]; label = "relocation sentinels")
-    write_result("relocation", "sentinels", ok, sc, 0.0)
+    foreach(n -> println("  note      ", n), notes)
+    write_result("relocation", "sentinels", ok, sc, 0.0; notes)
     return allok & ok
 end
 
@@ -657,6 +671,15 @@ function report_table(io::IO; require = String[], native_only = false)
             r = res[("relocation", n)]
             allok &= r["equivalent"]
             println(io, "| ", n, " | ", cell(r), " |")
+        end
+        s = get(res, ("relocation", "sentinels"), nothing)
+        if s !== nothing
+            for l in get(s, "details", String[])
+                println(io, "\n- sentinels: ", replace(first(l, 2000), "\n" => " "))
+            end
+            for l in get(s, "notes", String[])
+                println(io, "\n- sentinels: ", first(l, 6000))
+            end
         end
     end
     return allok

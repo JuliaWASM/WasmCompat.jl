@@ -54,6 +54,47 @@ function scan_markers(wasm::AbstractString, markers)
     return sort!(unique!([m for m in markers if !isempty(m) && occursin(m, hay)]))
 end
 
+# The embedded strings that contain a marker: each decoded constant byte array that contains
+# one, and, in the raw module bytes, the run of printable bytes around each occurrence.
+function marker_strings(wasm::AbstractString, markers)
+    strs = image_byte_strings(wasm)
+    found = Set{String}()
+    printable(b) = 0x20 <= b <= 0x7e
+    for (k, bytes) in enumerate(strs), m in markers
+        isempty(m) && continue
+        mb = Vector{UInt8}(codeunits(m))
+        if k > 1   # (a decoded string: the whole string)
+            occursin(m, String(copy(bytes))) && push!(found, String(copy(bytes)))
+            continue
+        end
+        i = 1
+        while (r = findnext(mb, bytes, i)) !== nothing
+            lo, hi = first(r), last(r)
+            while lo > 1 && printable(bytes[lo - 1]); lo -= 1; end
+            while hi < length(bytes) && printable(bytes[hi + 1]); hi += 1; end
+            push!(found, String(bytes[lo:hi]))
+            i = last(r) + 1
+        end
+    end
+    return sort!(collect(found))
+end
+
+# Log-macro source paths (`@warn`/`@error`'s `__source__.file`) are exempt, narrowly: a string
+# that is exactly the path of a `.jl` file inside one of `source_roots` (the checked-out source
+# trees). Returns (flagged markers, flagged strings, ignored strings); a marker is flagged when
+# any string containing it is not exempt.
+function classify_host_strings(wasm::AbstractString, markers, source_roots)
+    roots = [rstrip(r, '/') * "/" for r in source_roots if !isempty(r)]
+    exempt(x) = endswith(x, ".jl") && !occursin(r"[\s\x00;:]", x) && any(r -> startswith(x, r), roots) &&
+                normpath(x) == x
+    flagged, ignored = String[], String[]
+    for x in marker_strings(wasm, markers)
+        push!(exempt(x) ? ignored : flagged, x)
+    end
+    fm = sort!(unique!([m for m in markers if !isempty(m) && any(x -> occursin(m, x), flagged)]))
+    return fm, flagged, ignored
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
     length(ARGS) >= 2 || (println(stderr, "usage: imagescan.jl <module.wasm> <marker>..."); exit(2))
     foreach(println, scan_markers(ARGS[1], ARGS[2:end]))
