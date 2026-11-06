@@ -76,6 +76,8 @@ function apply_patch!(dir, p)
     file = joinpath(dir, ".git", "patch.diff")
     write(file, diff * "\n")
     ok, out = git_try(dir, "apply", "-3", "--index", "--whitespace=nowarn", file)
+    # (some git versions exit 0 after a three-way merge that left conflicts)
+    ok = ok && !occursin("with conflicts", out) && isempty(git(dir, "diff", "--name-only", "--diff-filter=U"))
     if !ok
         git(dir, "reset", "-q", "--hard", "HEAD")
         git(dir, "clean", "-q", "-fd")

@@ -94,10 +94,40 @@ pr = "JuliaLang/Pkg.jl#4915"
 # the PR's src/ diff doesn't apply to release-1.13: its backport, one commit on top of the
 # patches above (made from the PR at bbdbc77d6)
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-closure-captures"
+branch = "bp13/trim-closure-captures-2"
 from_parent = true
 from = "91f7823aef51706c3dd5059081d703b3ba6b9722"
-to = "e49451018bec7673e67328554453ab38994a3698"
+to = "545a2810abfb22e47840a4d848c74b8227406727"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "Pkg.jl trim-typed-toml-reads (release-1.13 backport)"
+# typed reads of parsed TOML (projects, manifests, usage logs, registries); branch trim-typed-toml-reads on pankgeorg/Pkg.jl (master, e39fd2fc5), not yet a PR
+repo = "https://github.com/pankgeorg/Pkg.jl"
+branch = "bp13/trim-typed-toml-reads-2"
+from_parent = true
+from = "545a2810abfb22e47840a4d848c74b8227406727"
+to = "7787a552acd051f8300eea2db6cbcbef21359d73"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "Pkg.jl trim-artifact-downloads (release-1.13 backport)"
+# typed artifact downloads, specialized on the `progress` callback; branch trim-artifact-downloads on pankgeorg/Pkg.jl (master, 7d14b4407), not yet a PR
+repo = "https://github.com/pankgeorg/Pkg.jl"
+branch = "bp13/trim-artifact-downloads-2"
+from_parent = true
+from = "7787a552acd051f8300eea2db6cbcbef21359d73"
+to = "2dcda0d828820a1761ff3272c514e4bebdf7b908"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "Pkg.jl trim-resolve-gc-registry (release-1.13 backport)"
+# typed API keywords, gc, registry and download results; the resolver as a loop; static printing; branch trim-resolve-gc-registry on pankgeorg/Pkg.jl (master, f169dd48b), not yet a PR
+repo = "https://github.com/pankgeorg/Pkg.jl"
+branch = "bp13/trim-resolve-gc-registry"
+from_parent = true
+from = "2dcda0d828820a1761ff3272c514e4bebdf7b908"
+to = "44895784b93c27f7bdd0f66632401b9b9841c11c"
 paths = ["src"]
 
 # WasmCodegen: main, no patches (it has gbaraldi/WasmCodegen.jl#68 and #71).
