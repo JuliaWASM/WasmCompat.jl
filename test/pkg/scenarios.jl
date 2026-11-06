@@ -7,7 +7,8 @@
 #       Run scenarios natively and store <out>/native/<S>/ (project/, out/, server.log,
 #       summary.toml): the expected results of the Wasm runs.
 #   julia test/pkg/scenarios.jl run --impl native|wasm [--wasm FILE] [S...]
-#       Run scenarios into <out>/<impl>/<S>/ and compare each with <out>/native/<S>.
+#       Run scenarios into <out>/wasm/<S>/ (native: <out>/native-rerun/<S>/) and compare each
+#       with <out>/native/<S>.
 #       (--impl native: a second native run, which checks that the scenario is deterministic.)
 #   julia test/pkg/scenarios.jl relocation --wasm FILE [S...]
 #       The relocation test of a build.jl module (see relocation()).
@@ -600,7 +601,8 @@ indent_tail(s; n = 40) = (l = split(rstrip(s), '\n'); "    " * join(l[max(1, end
 function run_and_compare(names; impl, wasm, offline)
     allok = true
     for name in names
-        rundir = joinpath(out_dir(), impl, name)
+        # (native: a rerun, beside the baselines, never over them)
+        rundir = joinpath(out_dir(), impl == "native" ? "native-rerun" : impl, name)
         if !isdir(baseline_dir(name))
             ck = [Check("baseline", false, ["no native baseline $(baseline_dir(name)) (run `scenarios.jl baseline` first, or it failed)"])]
             report(stdout, ck, String[]; label = "$name [$impl]")
