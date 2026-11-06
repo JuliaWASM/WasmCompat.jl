@@ -112,22 +112,22 @@ paths = ["src"]
 
 [[Pkg.patch]]
 name = "Pkg.jl trim-artifact-downloads (release-1.13 backport)"
-# typed artifact downloads, specialized on the `progress` callback; branch trim-artifact-downloads on pankgeorg/Pkg.jl (master, 7d14b4407), not yet a PR
+# typed artifact downloads, specialized on the `progress` callback; branch trim-artifact-downloads on pankgeorg/Pkg.jl (master, 32b5ec08f), not yet a PR
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-artifact-downloads-2"
+branch = "bp13/trim-artifact-downloads-r2"
 from_parent = true
 from = "7787a552acd051f8300eea2db6cbcbef21359d73"
-to = "2dcda0d828820a1761ff3272c514e4bebdf7b908"
+to = "68cb5cf4cdc18c6e765964dc5acdfd7e6fba8002"
 paths = ["src"]
 
 [[Pkg.patch]]
 name = "Pkg.jl trim-resolve-gc-registry (release-1.13 backport)"
-# typed API keywords, gc, registry and download results; the resolver as a loop; static printing; branch trim-resolve-gc-registry on pankgeorg/Pkg.jl (master, f169dd48b), not yet a PR
+# typed API keywords, gc, registry and download results; the resolver as a loop; static printing; branch trim-resolve-gc-registry on pankgeorg/Pkg.jl (master, 75df6a33), not yet a PR
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-resolve-gc-registry"
+branch = "bp13/trim-resolve-gc-registry-r2"
 from_parent = true
-from = "2dcda0d828820a1761ff3272c514e4bebdf7b908"
-to = "44895784b93c27f7bdd0f66632401b9b9841c11c"
+from = "68cb5cf4cdc18c6e765964dc5acdfd7e6fba8002"
+to = "694b3476afaf8c08d0ed43ad698df7cf9e69a4f5"
 paths = ["src"]
 
 [[Pkg.patch]]
@@ -135,21 +135,21 @@ name = "Pkg.jl trim-typed-copies (release-1.13 backport)"
 # typed copies and `==` of projects, manifests and package specs (no deepcopy); branch
 # trim-typed-copies on pankgeorg/Pkg.jl (master, 6184cfcf8), not yet a PR
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-typed-copies"
+branch = "bp13/trim-typed-copies-r2"
 from_parent = true
-from = "44895784b93c27f7bdd0f66632401b9b9841c11c"
-to = "dd33bc757193c62086f33cb89beb711f3d9789bc"
+from = "694b3476afaf8c08d0ed43ad698df7cf9e69a4f5"
+to = "7520e65ea75db64db7cecb8be7cd66c1041899ad"
 paths = ["src"]
 
 [[Pkg.patch]]
 name = "Pkg.jl trim-outline-error-logs (release-1.13 backport)"
 # logging on error paths out of line; branch trim-outline-error-logs on pankgeorg/Pkg.jl
-# (master, 9518bd6e), not yet a PR
+# (master, 27aa0055), not yet a PR
 repo = "https://github.com/pankgeorg/Pkg.jl"
-branch = "bp13/trim-outline-error-logs"
+branch = "bp13/trim-outline-error-logs-r2"
 from_parent = true
-from = "dd33bc757193c62086f33cb89beb711f3d9789bc"
-to = "32bba30a9fa84ada250a4c278c4493cf6a650ba6"
+from = "7520e65ea75db64db7cecb8be7cd66c1041899ad"
+to = "3720bacac3ac5005920e5acd6cc2aa25ee957419"
 paths = ["src"]
 
 # WasmCodegen: main, no patches (it has gbaraldi/WasmCodegen.jl#68 and #71).
