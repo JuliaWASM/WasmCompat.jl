@@ -1,0 +1,121 @@
+# The sources that test/pkg compiles to Wasm and runs natively: each repository at a pinned
+# commit, plus patches applied one by one, in file order. `julia test/pkg/apply_patches.jl`
+# checks them out (into test/pkg/work/ by default) and applies the patches, committing each.
+#
+# A patch is the diff `from..to` of `repo`, restricted to `paths` (all files if absent),
+# applied with `git apply -3`. Both commits are fetched by sha, so the applied content is
+# exactly the pinned one even after the branch moves; `--check-heads` reports the patches
+# whose PR or branch has moved, and `--refresh` rewrites the pins (`to` = the current head,
+# `from` = its merge base with `merge_base_with`).
+#
+# Pkg: release-1.13, the Pkg of Julia 1.13.2 plus backports. WasmCodegen supports Julia 1.12
+# and 1.13 only, and Pkg's master needs Julia 1.15, so the Wasm build and the native runs use
+# release-1.13. A master PR is applied as its `src/` diff; where that doesn't apply to
+# release-1.13, its backport branch (`bp13/<branch>`) is applied instead.
+
+[Pkg]
+repo = "https://github.com/JuliaLang/Pkg.jl"
+branch = "release-1.13"
+sha = "18efae02bf07d95ec21ac25d72a9f8b2af051ac8"
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4894 trim-semver-spec"
+pr = "JuliaLang/Pkg.jl#4894"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "dd2e4c3ec449ee1a4fa35d2bdfbe8d5e444acae2"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4895 trim-read-apps"
+pr = "JuliaLang/Pkg.jl#4895"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "017024576ceb0456e65f3c76229e245fde57ce70"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4896 trim-stdlib-toml"
+pr = "JuliaLang/Pkg.jl#4896"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "8f2318b50e7908a5a5ea1576b626acf1ab999cb3"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4897 trim-pkgerror-show"
+pr = "JuliaLang/Pkg.jl#4897"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "73a85aacaff675d099841e86a95476ecdc308d1f"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4898 trim-update-manifest-entry"
+pr = "JuliaLang/Pkg.jl#4898"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "40ea6e0ba9257f647701c84f6cc83323940a7968"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4899 trim-instantiate-checks"
+pr = "JuliaLang/Pkg.jl#4899"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "94507afdeab9ff0d7b201326f59841cd27832048"
+to = "ffa4e4b4131f99b321915a9183cc475cc5b75df6"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4910 trim-resolve-containers"
+pr = "JuliaLang/Pkg.jl#4910"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "94507afdeab9ff0d7b201326f59841cd27832048"
+to = "8c22772344ca029cad83cd7c8aa7c338cea64103"
+paths = ["src"]
+
+[[Pkg.patch]]
+name = "JuliaLang/Pkg.jl#4915 trim-closure-captures"
+pr = "JuliaLang/Pkg.jl#4915"
+repo = "https://github.com/pankgeorg/Pkg.jl"
+merge_base_with = "https://github.com/JuliaLang/Pkg.jl master"
+from = "7eabf057dde682ab61818030d3b0b2d61ab7053b"
+to = "d1f51ec89cbcf75568a74ad447371483160b96e4"
+paths = ["src"]
+
+# WasmCodegen: main (gbaraldi/WasmCodegen.jl#68, Core.apply_type and new of types known only
+# at run time, is merged: 298f5b2).
+[WasmCodegen]
+repo = "https://github.com/gbaraldi/WasmCodegen.jl"
+branch = "main"
+sha = "298f5b23cbe96711bc5bd708074753e9c2764930"
+
+# WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them (resolved
+# after WasmCodegen is patched; a branch is resolved to its current commit, which is printed).
+[WasmBuilder]
+from_sources_of = "WasmCodegen"
+
+[IRStructurizer]
+from_sources_of = "WasmCodegen"
+
+[WasmHost]
+repo = "https://github.com/pankgeorg/WasmHost.jl"
+branch = "main"
+sha = "bd69a543869f78adfedc2fbfa2c57b9b1f54627f"
+
+[LibGit2_wasm_jll]
+repo = "https://github.com/pankgeorg/LibGit2_wasm_jll.jl"
+branch = "main"
+sha = "5b801aa4231f509eb2b208c404f6d9f0dd6347e2"
+
+[PCRE2_wasm_jll]
+repo = "https://github.com/pankgeorg/PCRE2_wasm_jll.jl"
+branch = "main"
+sha = "f66707682c7d04bd99938ed5531273169d08c4d5"
