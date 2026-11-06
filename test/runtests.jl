@@ -6,6 +6,7 @@ using Test
 using WasmCodegen, WasmCompat
 import TOML, Logging, Tar, ArgTools, Artifacts, Dates
 import PCRE2_wasm_jll
+import LibGit2, LibGit2_wasm_jll
 using Base: UUID, SHA1, IdSet
 using Random: Xoshiro
 
@@ -18,6 +19,7 @@ const TarExt = ext(:WasmCompatTarExt)
 const ArgToolsExt = ext(:WasmCompatArgToolsExt)
 const ArtifactsExt = ext(:WasmCompatArtifactsExt)
 const PCRE2Ext = ext(:WasmCompatPCRE2Ext)
+const LibGit2Ext = ext(:WasmCompatLibGit2Ext)
 
 # the methods of WasmCodegen's overlay table defined by module `m`
 function overlays(m::Module)
@@ -36,6 +38,7 @@ end
         @test ArgToolsExt isa Module
         @test ArtifactsExt isa Module
         @test PCRE2Ext isa Module
+        @test LibGit2Ext isa Module
     end
 
     @testset "TOML: typed printer = TOML.print" begin
@@ -188,6 +191,26 @@ end
             @test_throws ArgumentError WasmCompat.pcre2_config(WasmCodegen.Config(host = :js))
         else
             @test_throws ErrorException WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi))
+        end
+    end
+
+    @testset "LibGit2: the configuration, the module and the overlays" begin
+        m = WasmCompat.libgit2_module()
+        @test isfile(m) && read(m, 4) == b"\0asm"
+        @test LibGit2.version() == VersionNumber(pkgversion(LibGit2_wasm_jll).major, pkgversion(LibGit2_wasm_jll).minor,
+                                                 pkgversion(LibGit2_wasm_jll).patch)
+        fs = LibGit2Ext.FUNCTIONS
+        @test all(k -> k[2] == LibGit2.LibGit2_jll.libgit2, first.(fs))
+        names = Set(first(k) for (k, _) in fs)
+        @test length(names) == length(fs)
+        @test :git_repository_open in names && :git_revparse_single in names && :git_oid_fromraw in names
+        # the calls with structs or pointer arrays are overlays, not foreign functions
+        @test !(:git_clone in names) && !(:git_remote_fetch in names) && !(:git_checkout_tree in names)
+        @test length(overlays(LibGit2Ext)) >= 30
+        if hasfield(WasmCodegen.Config, :foreign_functions) && hasfield(WasmCodegen.Config, :import_libraries)
+            c = WasmCompat.libgit2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
+            @test length(c.foreign_functions) == length(fs) && c.import_libraries == ["other", "libgit2"]
+            @test_throws ArgumentError WasmCompat.libgit2_config(WasmCodegen.Config(host = :js))
         end
     end
 

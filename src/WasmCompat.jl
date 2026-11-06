@@ -15,9 +15,11 @@ own only when WasmCodegen compiles a program; native code is unchanged.
 | `WasmCompatArgToolsExt` | ArgTools | callbacks specialized on; `open` without a keyword splat |
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed without an abstract `Pair` generator |
 | `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 compiled to Wasm ([`pcre2_config`](@ref)) |
+| `WasmCompatLibGit2Ext` | LibGit2_wasm_jll, LibGit2 | `LibGit2` on libgit2 compiled to Wasm ([`libgit2_config`](@ref)) |
 
 Functions here that are part of the extensions' interface with programs and builds:
-[`showerror_hook`](@ref), [`pcre2_config`](@ref) and [`pcre2_module`](@ref).
+[`showerror_hook`](@ref), [`pcre2_config`](@ref), [`pcre2_module`](@ref), [`libgit2_config`](@ref) and
+[`libgit2_module`](@ref).
 
 An overlay replaces the native method only where inference does not evaluate the call at compile
 time: WasmCodegen's inference still evaluates calls with constant arguments using the native
@@ -62,5 +64,25 @@ function pcre2_config end
 The path of the PCRE2 module a program compiled with [`pcre2_config`](@ref) imports as `"pcre2"`.
 """
 function pcre2_module end
+
+"""
+    WasmCompat.libgit2_config(config::WasmCodegen.Config; check_version = true) -> Config
+
+`config` with Julia's `LibGit2` on libgit2 compiled to WebAssembly (the extension
+`WasmCompatLibGit2Ext`, loaded with WasmCodegen, LibGit2_wasm_jll and LibGit2): `LibGit2`'s calls
+of libgit2 are functions of the extension (`Config(foreign_functions)`) over LibGit2_wasm_jll's
+standalone module, which the host instantiates, with a WASI instance of its own over the program's
+preopens, and gives the program as the import module `"libgit2"` (`Config(import_libraries)`;
+`js/libgit2.mjs`, with the file [`libgit2_module`](@ref)). For `Config(host = :wasi)`.
+LibGit2_wasm_jll's version must be the compiling Julia's libgit2 (`check_version`).
+"""
+function libgit2_config end
+
+"""
+    WasmCompat.libgit2_module() -> String
+
+The path of the libgit2 module a program compiled with [`libgit2_config`](@ref) imports as `"libgit2"`.
+"""
+function libgit2_module end
 
 end # module

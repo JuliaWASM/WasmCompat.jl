@@ -35,6 +35,7 @@ standard library's own methods.
 | `WasmCompatArgToolsExt` | ArgTools | Callbacks specialized on. `arg_read`/`arg_write` of a path call `open` without a keyword splat. | JuliaIO/ArgTools.jl#46 |
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed in a loop, without a generator whose element type is the abstract `Pair{String}`. | |
 | `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 itself, compiled to WebAssembly: see *Regex* below. Opt-in, through `WasmCompat.pcre2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)` |
+| `WasmCompatLibGit2Ext` | LibGit2_wasm_jll, LibGit2 | Julia's `LibGit2` on libgit2 itself, compiled to WebAssembly: see *Git* below. Opt-in, through `WasmCompat.libgit2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)`; libgit2's WASI changes are proposed upstream |
 
 The Tar and ArgTools overlays are the libraries' own definitions with `::Function` arguments made type
 parameters. `gen/specialize_callbacks.jl` generates them from the installed Julia's stdlib sources,
@@ -98,6 +99,56 @@ The program copies patterns and subjects into the PCRE2 module's memory and copi
   native JIT detects it as JIT stack exhaustion. Example: `(?R)` gives "nested recursion at the same subject
   position" here and "JIT stack limit reached" natively. PCRE2 without a JIT gives the same as here.
 
+## Git
+
+Julia's `LibGit2` calls libgit2, a C library a WebAssembly module does not have. With `WasmCompatLibGit2Ext`,
+`LibGit2` runs on libgit2 itself (1.9.7, Julia 1.13.2's), compiled to WebAssembly as a separate module:
+[LibGit2_wasm_jll](https://github.com/pankgeorg/LibGit2_wasm_jll.jl)'s `libgit2.wasm`. `LibGit2`'s Julia code
+runs, and so does its callers': Pkg's `GitTools`, `Types`, `Operations` and `Registry` unchanged clone, fetch,
+open repositories, resolve revisions, read trees and blobs, check out trees, reset, merge (fast-forward) and
+rebase with it. Like the PCRE2 extension, this one is opt-in:
+
+```julia
+using WasmCodegen, WasmCompat, LibGit2, LibGit2_wasm_jll   # LibGit2_wasm_jll: the libgit2 of the compiling Julia
+config = WasmCompat.libgit2_config(WasmCodegen.Config(host = :wasi))
+# ... WasmCodegen.compile(entries; config)
+cp(WasmCompat.libgit2_module(), "libgit2.wasm")   # deploy it with the program
+```
+
+`libgit2_config` adds the extension's functions (`Config(foreign_functions)`, library `LibGit2_jll.libgit2`) and the
+import library `"libgit2"`. Unlike PCRE2's, the libgit2 module has imports of its own: WASI preview 1 for its
+filesystem (an instance of its own, over the *same* preopens and environment as the program's), and WasmHost's
+`wasm_host.http_request` for https (the host's fetch; it suspends, so the program's export runs through JSPI).
+`js/libgit2.mjs` instantiates it:
+
+```js
+import { libgit2Imports } from './libgit2.mjs';
+const wasi = new WASI({ version: 'preview1', preopens, env, returnOnExit: true });   // the program's preopens
+const wasmHost = makeImports({ preopens });   // WasmHost.jl's js/node/imports.mjs
+const imports = { ...programImports, ...(await libgit2Imports(fs.readFileSync('libgit2.wasm'), { wasi, wasmHost })) };
+await WebAssembly.promising(instance.exports.main)();
+```
+
+How it works: `LibGit2`'s handle types hold the module's addresses in their `ptr` fields. The `ccall`s that take
+and return handles, integers, strings and ids (51) are foreign functions that copy strings and ids in and out. The
+methods whose `ccall` passes an option struct, an array of pointers or an out-struct of pointers (`clone`, `fetch`,
+`checkout_tree`, `reset!`, `GitRebase`, `add!`, `merge_analysis`, `remotes`, `branch`, configuration strings, the
+last error, signatures, rebase operations) are overlays that make the same libgit2 call by the struct's fields:
+WasmCodegen loads plain bits through a pointer a foreign function receives, but not pointers inside structs or
+arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the object constructors, `commit`, `close`).
+
+- **No callbacks.** libgit2 calls no Julia function: remotes are public https (TLS is the host's) or local paths;
+  a remote that asks for credentials is libgit2's `EAUTH` error ("remote authentication required but no callback
+  set"); transfer progress is not reported (Pkg's progress bar stays empty).
+- **WASI preview 1:** no permission bits, so the module sets `core.filemode = false` for each repository it opens
+  (a work tree is not dirty by mode), and the files git records as executable are made executable after a
+  checkout through the program's `chmod` (WasmCodegen's `julia_io` host extension; without it they stay
+  non-executable). No ssh, no credential helpers.
+- **Not in Wasm:** non-fast-forward `merge!`, `merge!` of FETCH_HEAD, `CheckoutOptions(paths)`. Pkg uses none.
+- **Node 24:** run Node with `--no-turbo-fast-api-calls`: a node:wasi call that allocates while on a JSPI stack can
+  abort the process (`Check failed: isolate_->IsOnCentralStack()`).
+- **Size:** the libgit2 module is about 1.1 MB, 380 KB gzipped (920 KB after `wasm-opt -Oz`).
+
 ## Differences from native, by design
 
 - **TOML:** an integer literal longer than 33 decimal digits (hex 34, octal 45, binary 130) is
@@ -139,8 +190,11 @@ The program copies patterns and subjects into the PCRE2 module's memory and copi
 ## Hosts
 
 The extensions have no host side: they are Julia code compiled into the module, using only WASI
-preview 1 through WasmCodegen's runtime. They are host-neutral, except that the PCRE2 extension needs the host to
-instantiate PCRE2's module (`js/pcre2.mjs` for JavaScript; any host that can link two modules works the same).
+preview 1 through WasmCodegen's runtime. They are host-neutral, except that the PCRE2 and LibGit2 extensions need the
+host to instantiate their modules (`js/pcre2.mjs` and `js/libgit2.mjs` for JavaScript; any host that can link two
+modules works the same). libgit2's module also needs a WASI instance of its own that shares the program's
+filesystem (a browser's WASI shim must give both instances the same directory objects), and a fetch for https
+(GitHub sends no CORS headers: a browser needs a proxy).
 
 | Host | Status |
 |---|---|
@@ -158,6 +212,10 @@ instantiate PCRE2's module (`js/pcre2.mjs` for JavaScript; any host that can lin
   on Node's WASI. `check.sh` diffs each program's output with native Julia's. With `PCRE2=1`, `regex.jl` (Base's
   Regex API, compile errors, PCRE-only constructs, Pkg's semver patterns on every `[compat]` range of the General
   registry, Tar's path checks) and `corpus.jl` (69 patterns through `eachmatch`, `keys` and `replace`) run on PCRE2.
+  With `LIBGIT2=1 PCRE2=1`, `git.jl` runs the operations Pkg performs through `LibGit2` on repositories it makes
+  (init/add!/commit, objects, trees and blobs, HEAD and branches, configuration, remotes, local and file:// clones,
+  fetch with Pkg's refspec, checkout into a directory, isdirty, reset!, fast-forward merge!, rebase!, errors);
+  with `NET=1 WASM_ENV=NET=1 WASMHOST_JS=<WasmHost.jl>/js/node` also a shallow https clone and an unshallow fetch.
 
 ## License
 
