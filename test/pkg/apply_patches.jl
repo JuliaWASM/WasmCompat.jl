@@ -110,7 +110,12 @@ function apply_all(cfg, work, only; keep_going = false)
         if haskey(c, "from_sources_of")
             src = joinpath(work, c["from_sources_of"] * ".jl")
             url, rev, sha = sources_entry(src, name)
-            println("$name: $url at $rev = $sha (from $(c["from_sources_of"])'s [sources])")
+            if haskey(c, "sha") && !is_sha(rev)
+                println("$name: $url at $(c["sha"]) (pinned; $(c["from_sources_of"])'s [sources] say $rev, now $(sha[1:10]))")
+                sha = c["sha"]
+            else
+                println("$name: $url at $rev = $sha (from $(c["from_sources_of"])'s [sources])")
+            end
         else
             url, sha = c["repo"], c["sha"]
             println("$name: $url $(get(c, "branch", "")) at $sha")
@@ -155,6 +160,14 @@ function check_heads(cfg)
     for name in ORDER
         c = get(cfg, name, nothing)
         c === nothing && continue
+        if haskey(c, "from_sources_of") && haskey(c, "sha")
+            dir = joinpath(HERE, "work", c["from_sources_of"] * ".jl")
+            if isdir(dir)
+                url, rev, h = sources_entry(dir, name)
+                h == c["sha"] ? println("$name: $rev at the pinned $(c["sha"][1:10])") :
+                    (moved += 1; println("$name: $rev is now $(h[1:10]), pinned $(c["sha"][1:10])"))
+            end
+        end
         if haskey(c, "branch") && haskey(c, "sha")
             h = ls_remote(c["repo"], "refs/heads/" * c["branch"])
             h == c["sha"] ? println("$name: $(c["branch"]) at the pinned $(c["sha"][1:10])") :

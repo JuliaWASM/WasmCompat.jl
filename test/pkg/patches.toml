@@ -96,19 +96,13 @@ repo = "https://github.com/gbaraldi/WasmCodegen.jl"
 branch = "main"
 sha = "0034569817c5ddf1b7d1836df38f1b3d6bb00460"
 
-# WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them (a branch is resolved to its current commit, which is printed).
+# WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them. Where it
+# names a branch (WasmBuilder: main), `sha` pins the commit (--check-heads reports a newer one).
 [WasmBuilder]
 from_sources_of = "WasmCodegen"
-
-# gbaraldi/WasmBuilder.jl#2 until it is merged: without it, a module can't link the pcre2 and
-# libgit2 import modules. (Pinned at 34d78df; the PR's head has a later commit, ae636ff.)
-[[WasmBuilder.patch]]
-name = "gbaraldi/WasmBuilder.jl#2 structural-functypes"
-pr = "gbaraldi/WasmBuilder.jl#2"
-repo = "https://github.com/pankgeorg/WasmBuilder.jl"
-merge_base_with = "https://github.com/gbaraldi/WasmBuilder.jl main"
-from = "e4e320f97f516da876ea20a0eeec9a1b50bf9a9e"
-to = "34d78dfd8564bc6aae2729ac39cec00b73179035"
+# main with gbaraldi/WasmBuilder.jl#2 (structural function types; needed to link the pcre2 and
+# libgit2 import modules)
+sha = "487344fa7243681232353ee3a2d8bc4041487638"
 
 [IRStructurizer]
 from_sources_of = "WasmCodegen"
