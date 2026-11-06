@@ -14,7 +14,8 @@
 #          beside it), module/pkgentry.wasm.build.toml (the build report), build-env/, and the
 #          relocation test's sentinel/ and relocation-cache/
 # --patch  extra patch files (`Config(extra_patches)`; they see the shim module by its name and `Pkg`),
-#          after test/pkg/patches/*.jl (the harness's patches, always applied, in name order)
+#          after test/pkg/patches/*.jl and <shim>/../build-patches/*.jl (the harness's and the
+#          shim's patches, always applied, each in name order)
 # --load   extra packages, added to the build environment and loaded before compiling
 #
 # The build runs in a generated environment whose [sources] point at the checkouts and at this
@@ -67,9 +68,8 @@ function parse_args(args)
     for n in SOURCES
         isfile(joinpath(o["work"], n * ".jl", "Project.toml")) || error("no $n checkout in $(o["work"]) (run apply_patches.jl)")
     end
-    pd = joinpath(HERE, "patches")
-    harness = isdir(pd) ? sort!(filter(f -> endswith(f, ".jl"), readdir(pd; join = true))) : String[]
-    o["patches"] = [harness; o["patches"]]
+    jls(d) = isdir(d) ? sort!(filter(f -> endswith(f, ".jl"), readdir(d; join = true))) : String[]
+    o["patches"] = [jls(joinpath(HERE, "patches")); jls(joinpath(dirname(o["shim"]), "build-patches")); o["patches"]]
     for p in o["patches"]
         isfile(p) || error("patch file $p does not exist")
     end
@@ -119,7 +119,8 @@ function setup_env(o)
     # the standard libraries the program and WasmCompat's extensions use
     for (n, u) in ("LibGit2" => "76f85450-5226-5b5a-8eaa-529ad045b433", "TOML" => "fa267f1f-6049-4f14-aa54-33bafae1ed76",
                    "Tar" => "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e", "ArgTools" => "0dad84c5-d112-42e6-8d28-ef12dabb789f",
-                   "Artifacts" => "56f22d72-fd6d-98f1-02f0-08ddc0907c33", "Logging" => "56ddb016-857b-54e1-b83d-db4d58db5568")
+                   "Artifacts" => "56f22d72-fd6d-98f1-02f0-08ddc0907c33", "Logging" => "56ddb016-857b-54e1-b83d-db4d58db5568",
+                   "FileWatching" => "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee")
         deps[n] = u
     end
     open(io -> TOML.print(io, Dict("deps" => deps, "sources" => sources); sorted = true), joinpath(env, "Project.toml"), "w")

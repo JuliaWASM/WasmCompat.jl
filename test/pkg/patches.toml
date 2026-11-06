@@ -122,6 +122,16 @@ repo = "https://github.com/pankgeorg/WasmHost.jl"
 branch = "main"
 sha = "bd69a543869f78adfedc2fbfa2c57b9b1f54627f"
 
+# HostPlatform() from the host's tags and Pkg's decompression by the host, in compiled modules
+# (WasmHostPlatformExt, WasmHostPkgExt), until they are merged into main
+[[WasmHost.patch]]
+name = "WasmHost.jl stock-pkg-overlays"
+repo = "https://github.com/pankgeorg/WasmHost.jl"
+branch = "stock-pkg-overlays"
+from_parent = true
+from = "bd69a543869f78adfedc2fbfa2c57b9b1f54627f"
+to = "07998846155af0cf9cd8bc30b69d247167191c46"
+
 [LibGit2_wasm_jll]
 repo = "https://github.com/pankgeorg/LibGit2_wasm_jll.jl"
 branch = "main"
