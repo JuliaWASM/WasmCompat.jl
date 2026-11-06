@@ -15,18 +15,20 @@
 //   import { makeImports } from '<WasmHost.jl>/js/node/imports.mjs';
 //   const wasi = new WASI({ version: 'preview1', preopens, env, returnOnExit: true });
 //   const wasmHost = makeImports({ preopens });
-//   const imports = { ...programWasi.getImportObject(), ...(await libgit2Imports(fs.readFileSync(path), { wasi, wasmHost })) };
+//   const imports = { ...wasiImportObject(programWasi), ...(await libgit2Imports(fs.readFileSync(path), { wasi, wasmHost })) };
 //   const instance = await WebAssembly.instantiate(programModule, imports);
 //   await WebAssembly.promising(instance.exports.main)();
 //
 // Node 24: a node:wasi call that allocates while a JSPI stack is suspended-and-resumed can abort the
-// process (`Check failed: isolate_->IsOnCentralStack()`); run Node with `--no-turbo-fast-api-calls`.
+// process (`Check failed: isolate_->IsOnCentralStack()`); run Node with `--no-turbo-fast-api-calls`. (Bun: no flag.)
 // One promising call at a time: libgit2's C stack is one region of its memory.
+
+import { wasiImportObject, wasiInitialize } from './wasi.mjs';
 
 /**
  * `{ libgit2: exports }` of a new, initialized instance of the libgit2 module (bytes, a Response or
- * a Module). `wasi` has `wasiImport` and `initialize(instance)` (node:wasi's `WASI`, or a browser
- * shim's); `wasmHost` has `imports` (`{ wasm_host: { http_request } }`) and `bindMemory(memory)`
+ * a Module). `wasi` is node:wasi's `WASI` (Node's or Bun's, see `wasi.mjs`) or a browser shim's with
+ * `wasiImport` and `initialize(instance)`; `wasmHost` has `imports` (`{ wasm_host: { http_request } }`) and `bindMemory(memory)`
  * (WasmHost's adapter), or is omitted for a program with only local repositories.
  */
 export async function libgit2Imports(source, { wasi, wasmHost } = {}) {
@@ -36,8 +38,8 @@ export async function libgit2Imports(source, { wasi, wasmHost } = {}) {
     await WebAssembly.compile(source);
   const noFetch = { wasm_host: { http_request: () => -1 } };   // (a response that is never valid: a GitError)
   const instance = await WebAssembly.instantiate(module, {
-    wasi_snapshot_preview1: wasi.wasiImport, ...(wasmHost ? wasmHost.imports : noFetch) });
-  wasi.initialize(instance);
+    ...wasiImportObject(wasi), ...(wasmHost ? wasmHost.imports : noFetch) });
+  wasiInitialize(wasi, instance);
   wasmHost?.bindMemory(instance.exports.memory);
   const rc = instance.exports.lg2w_init();
   if (rc < 0) throw new Error(`libgit2 module: lg2w_init failed (${rc})`);
