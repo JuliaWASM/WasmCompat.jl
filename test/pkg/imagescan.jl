@@ -80,8 +80,8 @@ function marker_strings(wasm::AbstractString, markers)
 end
 
 # Log-macro source paths (`@warn`/`@error`'s `__source__.file`) are exempt, narrowly: a string
-# that is exactly the path of a `.jl` file inside one of `source_roots` (the checked-out source
-# trees). Returns (flagged markers, flagged strings, ignored strings); a marker is flagged when
+# that is exactly the (normalized) path of a `.jl` file inside one of `source_roots` (the
+# checked-out source trees compiled into the module). Returns (flagged markers, flagged strings, ignored strings); a marker is flagged when
 # any string containing it is not exempt.
 function classify_host_strings(wasm::AbstractString, markers, source_roots)
     roots = [rstrip(r, '/') * "/" for r in source_roots if !isempty(r)]
