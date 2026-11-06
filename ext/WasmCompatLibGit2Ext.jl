@@ -490,14 +490,16 @@ end
 
 # Closed-world forms of three methods of LibGit2 (the same results):
 # (`@check` is `rc < 0 && throw(Error.GitError(rc))` in the overlays below, as LibGit2's macro expands)
-# `GitObject(repo, ptr)` (types.jl) calls the type `objtype` returns: here one constructor per type
+# `GitObject(repo, ptr)` (types.jl) calls the type `objtype` returns: here one constructor per type of object
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function LibGit2.GitObject(repo::LibGit2.GitRepo, ptr::Ptr{Cvoid})::LibGit2.GitObject
     t = Consts.OBJECT(ptr)
     t == Consts.OBJ_COMMIT && return LibGit2.GitCommit(repo, ptr)
     t == Consts.OBJ_TREE && return LibGit2.GitTree(repo, ptr)
     t == Consts.OBJ_BLOB && return LibGit2.GitBlob(repo, ptr)
-    t == Consts.OBJ_TAG && return LibGit2.GitTag(repo, ptr)
-    return LibGit2.GitUnknownObject(repo, ptr)
+    # (libgit2's objects are of these four types: four, not LibGit2's five, keep the result a union
+    # inference splits, as LibGit2's callers need)
+    t == Consts.OBJ_TAG || throw(Error.GitError(Error.Object, Error.ERROR, "object of an unexpected type"))
+    return LibGit2.GitTag(repo, ptr)
 end
 
 objtype_name(t::Consts.OBJECT) =
