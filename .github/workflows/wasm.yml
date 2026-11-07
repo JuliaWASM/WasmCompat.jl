@@ -34,7 +34,8 @@ jobs:
         include:
           - { check: corpus, pcre2: '1', libgit2: '0' }
           - { check: regex, pcre2: '1', libgit2: '0' }
-          - { check: tar, pcre2: '1', libgit2: '0' }
+          # (tar: Tar.extract sets file modes, which need WasmCodegen's julia_io host extension)
+          - { check: tar, pcre2: '1', libgit2: '0', ext: julia_io }
           - { check: toml, pcre2: '0', libgit2: '0', allow_failure: true, reason: 'does not build with trim = :safe: WasmCompatTOMLExt.unsupported passes typeof(x) through error() varargs (WasmCodegen: a tuple of abstract type)' }
           - { check: logging, pcre2: '0', libgit2: '0' }
           - { check: artifacts, pcre2: '0', libgit2: '0' }
@@ -59,7 +60,7 @@ jobs:
           set -o pipefail
           export JULIA=julia
           export WCG_JS="$(julia --startup-file=no -e 'using WasmCodegen; print(joinpath(pkgdir(WasmCodegen), "js"))')"
-          WASM_RUNTIME= ./test/wasm/check.sh ${{ matrix.check }}
+          WASM_RUNTIME= ./test/wasm/check.sh ${{ matrix.check }} ${{ matrix.ext }}
           grep -E '^(optimize|compiled|verifier|COMPILE)' test/wasm/out/${{ matrix.check }}/build.log
           cp -r "$WCG_JS" test/wasm/out/${{ matrix.check }}/wcg-js
       - uses: actions/upload-artifact@v4
@@ -88,8 +89,8 @@ jobs:
         runtime: [node, bun]
         include:
           - { check: git, libgit2: '1' }
-          - { check: tar, runtime: node, allow_failure: true, reason: 'README, known limits: tar.jl traps at Tar.list (both runtimes, the same trap)' }
-          - { check: tar, runtime: bun, allow_failure: true, reason: 'README, known limits: tar.jl traps at Tar.list (both runtimes, the same trap)' }
+          - { check: tar, runtime: node, allow_failure: true, reason: 'README, known limits: Tar.list reads an undefined value (IRStructurizer carries the header of Tar.iterate_headers'' irreducible loop as undefined through a nested loop); a code generation issue, the same on both runtimes' }
+          - { check: tar, runtime: bun, allow_failure: true, reason: 'README, known limits: Tar.list reads an undefined value (IRStructurizer carries the header of Tar.iterate_headers'' irreducible loop as undefined through a nested loop); a code generation issue, the same on both runtimes' }
           - { check: logging, runtime: node, allow_failure: true, reason: 'traps (unreachable) after 22 identical lines, on both runtimes; and log locations print @WasmCompat/... (known on main)' }
           - { check: logging, runtime: bun, allow_failure: true, reason: 'traps (unreachable) after 22 identical lines, on both runtimes; and log locations print @WasmCompat/... (known on main)' }
           - { check: toml, runtime: node, allow_failure: true, reason: 'its module does not build (see the build job)' }
