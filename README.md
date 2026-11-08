@@ -34,6 +34,7 @@ standard library's own methods.
 | `WasmCompatTarExt` | Tar | Callbacks (`predicate`, `callback`, `emit`) specialized on, so calling them is static. `check_version_field` without a regex. | JuliaIO/Tar.jl#206 (the same specializations) |
 | `WasmCompatArgToolsExt` | ArgTools | Callbacks specialized on. `arg_read`/`arg_write` of a path call `open` without a keyword splat. | JuliaIO/ArgTools.jl#46 |
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed in a loop, without a generator whose element type is the abstract `Pair{String}`. | |
+| `WasmCompatMsgPackExt` | MsgPack | `MsgPack.pack` of values in abstractly typed places (a `Dict{String,Any}` message): each value is told apart by `isa` over common types, then packed by MsgPack's own methods, so the bytes are identical. `invalid_pack`'s error names types, not values. Floats are written by their bits (a WasmCodegen workaround). Only packing. | JuliaIO/MsgPack.jl#76 (the error message); the dispatch on run-time types also fails `juliac --trim=safe` natively; WasmCodegen's `bswap_int` of floats |
 | `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 itself, compiled to WebAssembly: see *Regex* below. Opt-in, through `WasmCompat.pcre2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)` |
 | `WasmCompatLibGit2Ext` | LibGit2_wasm_jll, LibGit2 | Julia's `LibGit2` on libgit2 itself, compiled to WebAssembly: see *Git* below. Opt-in, through `WasmCompat.libgit2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)`; libgit2's WASI changes are proposed upstream |
 | `WasmCompatSIMDExt` | SIMD | SIMD.jl's intrinsics (each a `Base.llvmcall` of LLVM IR, which WasmCodegen does not compile) as the same operation on each lane, so code written with `SIMD.Vec` compiles as it is. Lane by lane: scalar speed, no SIMD128 (see *Differences*). | A SIMD128 lowering in WasmCodegen would replace the lanes for 16-byte vectors |
@@ -161,6 +162,12 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   `WasmCompatTOMLExt.SCALAR_TYPES`, `TABLE_TYPES` or `ARRAY_TYPES` (the parser's own output and the
   common concrete containers), or one of `UUID`, `SHA1`, `VersionNumber`, `Nothing` or `Symbol`
   passed through the conversion function. Any other value is an error in Wasm.
+- **MsgPack:** inside an abstractly typed container (`Dict{String,Any}`, `Vector{Any}`, a field of
+  abstract type), a value must be of one of the types listed in `WasmCompatMsgPackExt.SCALAR_TYPES`,
+  `ARRAY_TYPES` or `MAP_TYPES` (MsgPack's scalars and the common concrete containers). Any other
+  value is an error in Wasm. A value whose type is concrete where it is packed is packed as natively,
+  whatever its type (structs with `msgpack_type` methods included). Only `pack` is covered. `unpack`
+  without a target type builds values whose types are known only at run time.
 - **Logging:** the logger is fixed. `with_logger` and `global_logger` are not consulted, the
   minimum level is `Info`, and `JULIA_DEBUG` is ignored. Exceptions are shown without backtraces.
   Values are shown if they are of a common type (strings, symbols, numbers, versions, UUIDs) or an
@@ -228,7 +235,7 @@ filesystem (a browser's WASI shim must give both instances the same directory ob
   check against the regex; that every overlay is present; the PCRE2 configuration, module and version;
   and (`test/simd.jl`) each SIMD.jl lane overlay against SIMD.jl's own LLVM intrinsic, in floats and integers of
   every width, including NaNs, overflow and masks.
-- `test/wasm/` (needs Node 24 or Bun 1.4): one small program per extension (`simd.jl`: SIMD.jl `Vec` code and a `OncePerProcess`), compiled with `trim = :safe` (and
+- `test/wasm/` (needs Node 24 or Bun 1.4): one small program per extension (`simd.jl`: SIMD.jl `Vec` code and a `OncePerProcess`; `msgpack.jl`: `MsgPack.pack` of a `Dict{String,Any}` of mixed values), compiled with `trim = :safe` (and
   optimized by `wasm-opt -O3`) and run on `node:wasi` in Node or Bun (`WASM_RUNTIME=node|bun`, or both). `check.sh` diffs each program's output with native Julia's. With `PCRE2=1`, `regex.jl` (Base's
   Regex API, compile errors, PCRE-only constructs, Pkg's semver patterns on every `[compat]` range of the General
   registry, Tar's path checks) and `corpus.jl` (69 patterns through `eachmatch`, `keys` and `replace`) run on PCRE2.

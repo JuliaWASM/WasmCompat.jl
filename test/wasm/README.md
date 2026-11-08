@@ -1,6 +1,6 @@
 # Wasm checks
 
-One small program per extension (`toml.jl`, `logging.jl`, `tar.jl`, `artifacts.jl`), compiled by WasmCodegen with
+One small program per extension (`toml.jl`, `logging.jl`, `tar.jl`, `artifacts.jl`, `msgpack.jl`), compiled by WasmCodegen with
 `trim = :safe` and run on WASI (`run.mjs`, on `node:wasi` in Node or in Bun); `check.sh NAME` diffs its output with the
 same program run natively.
 
