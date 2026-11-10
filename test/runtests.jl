@@ -4,7 +4,7 @@
 
 using Test
 using WasmCodegen, WasmCompat
-import TOML, Logging, Tar, ArgTools, Artifacts, Dates
+import TOML, Logging, Tar, ArgTools, Artifacts, Dates, MsgPack
 import PCRE2_wasm_jll
 import LibGit2, LibGit2_wasm_jll
 using Base: UUID, SHA1, IdSet
@@ -18,6 +18,7 @@ const LoggingExt = ext(:WasmCompatLoggingExt)
 const TarExt = ext(:WasmCompatTarExt)
 const ArgToolsExt = ext(:WasmCompatArgToolsExt)
 const ArtifactsExt = ext(:WasmCompatArtifactsExt)
+const MsgPackExt = ext(:WasmCompatMsgPackExt)
 const PCRE2Ext = ext(:WasmCompatPCRE2Ext)
 const LibGit2Ext = ext(:WasmCompatLibGit2Ext)
 
@@ -37,6 +38,7 @@ end
         @test TarExt isa Module
         @test ArgToolsExt isa Module
         @test ArtifactsExt isa Module
+        @test MsgPackExt isa Module
         @test PCRE2Ext isa Module
         @test LibGit2Ext isa Module
     end
@@ -172,6 +174,30 @@ end
         @test length(overlays(TarExt)) >= 16 # the generated callback specializations + check_version_field
         @test length(overlays(ArgToolsExt)) >= 12
         @test length(overlays(ArtifactsExt)) == 1
+    end
+
+    @testset "MsgPack: pack by isa, byte for byte" begin
+        d = Dict{String, Any}("i" => 1, "u" => typemax(UInt64), "s" => "α", "f" => 1.5f0, "n" => nothing,
+                              "m" => missing, "y" => :sym, "c" => 'é', "v" => Any[1, "a", 2.0, true],
+                              "b" => UInt8[0, 255], "e" => MsgPack.Extension(Int8(3), UInt8[1, 2]),
+                              "d" => Dict{String, Any}("x" => Any[Dict{String, Any}("deep" => -1)]),
+                              "w" => repeat("w", 300), "a" => collect(1:20))
+        for x in (d, Any[d, "x", 1], Dict{String, Float64}("a" => 1.0), (1, "t"), 7)
+            io = IOBuffer()
+            MsgPackExt.pack_value(io, x)               # (by the static type: concrete)
+            @test take!(io) == MsgPack.pack(x)
+            typeof(x) in MsgPackExt.VALUE_TYPES || continue
+            MsgPackExt.pack_any(io, x)                 # (by isa, as for an Any-typed value)
+            @test take!(io) == MsgPack.pack(x)
+        end
+        # a value of a type it does not know, in an Any-typed place: an error naming the type
+        e = try MsgPackExt.pack_any(IOBuffer(), Opaque()); nothing catch err; err end
+        @test e isa ErrorException && occursin("Opaque", e.msg) && occursin("VALUE_TYPES", e.msg)
+        # every type it tells apart is packed by MsgPack without an AnyType mapping
+        @test all(T -> !(MsgPack.msgpack_type(T) isa MsgPack.AnyType), MsgPackExt.VALUE_TYPES)
+        # (invalid_pack's message: #76's text; the MsgPack type as `T()`, as `show` prints it)
+        @test string(MsgPack.IntegerType()) == "$(typeof(MsgPack.IntegerType()))()"
+        @test length(overlays(MsgPackExt)) == 2   # pack(io, x), invalid_pack
     end
 
     @testset "PCRE2: the configuration and the module" begin
