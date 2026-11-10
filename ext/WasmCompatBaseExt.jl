@@ -20,13 +20,9 @@ unsupported construct as a function that traps):
   value of a type not known at compile time. The overlay takes the event as the `Task` it is.
 - **Backtraces.** `catch_backtrace` asks the runtime for the exception's backtrace
   (`jl_get_backtrace`), which a Wasm module does not have: an empty backtrace.
-- **`mktemp(f)`, `mktempdir(f)`.** Their cleanup logs a failure with `exception = (ex,
-  catch_backtrace())`, a tuple of a value of a type not known at compile time, which WasmCodegen
-  does not compile: every function that makes a temporary directory traps. Here the failure is
-  logged by a function of its own, so only a failed cleanup reaches the unsupported construct.
-- **`sprint(showerror, e)`** of a caught exception (of a type not known at compile time): the call
-  packs `e` in a `Tuple{Any}` for `sprint`'s varargs, which WasmCodegen does not compile, so every
-  function that shows a caught error traps. The overlay takes `e` as one argument and shows it as
+- **`sprint(showerror, e)`** of a caught exception (of a type not known at compile time): Base's
+  `showerror(io, e)` is then a call on a type known only at run time, which a closed world cannot
+  resolve, so every function that shows a caught error traps. The overlay shows `e` as
   WasmCompat's `showerror_hook` does, else as WasmCodegen's runtime does
   (`Runtime.Host.error_text`: the `showerror` of the exception's type where the module can
   compile it, else the text of Base's usual exceptions).
@@ -98,46 +94,6 @@ end
 ## No backtraces
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS Base.catch_backtrace() =
     Vector{Union{Ptr{Nothing}, Base.InterpreterIP}}()
-
-## Temporary files and directories: the cleanup's failure logged apart
-@noinline log_cleanup_failure(what::String, @nospecialize(ex)) =
-    @error what _group = :file exception = (ex, catch_backtrace())
-
-Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function Base.Filesystem.mktempdir(
-        fn::Function, parent::AbstractString = tempdir(); prefix::AbstractString = Base.Filesystem.temp_prefix)
-    tmpdir = mktempdir(parent; prefix = prefix)
-    try
-        fn(tmpdir)
-    finally
-        Base.Filesystem.temp_cleanup_forget(tmpdir)
-        try
-            if ispath(tmpdir)
-                Base.Filesystem.prepare_for_deletion(tmpdir)
-                rm(tmpdir, recursive = true)
-            end
-        catch ex
-            log_cleanup_failure("mktempdir cleanup", ex)
-            Base.Filesystem.temp_cleanup_later(tmpdir, asap = true)
-        end
-    end
-end
-
-Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function Base.Filesystem.mktemp(
-        fn::Function, parent::AbstractString = tempdir())
-    (tmp_path, tmp_io) = mktemp(parent)
-    try
-        fn(tmp_path, tmp_io)
-    finally
-        Base.Filesystem.temp_cleanup_forget(tmp_path)
-        try
-            close(tmp_io)
-            ispath(tmp_path) && rm(tmp_path)
-        catch ex
-            log_cleanup_failure("mktemp cleanup", ex)
-            Base.Filesystem.temp_cleanup_later(tmp_path, asap = true)
-        end
-    end
-end
 
 ## `hash(::SHA1)` with the type's hash of this Julia
 const SHA1_TYPE_HASH = Base._jl_type_hash(Base.SHA1)

@@ -201,20 +201,13 @@ end
     end
 
     @testset "Base: overlays" begin
-        # (scoped values, styled display, @sync, backtraces, mktemp(f)/mktempdir(f), gethostname,
-        # hash(::SHA1), sprint(showerror, e))
-        @test length(overlays(BaseExt)) >= 12
+        # (scoped values, styled display, @sync, backtraces, gethostname, hash(::SHA1),
+        # sprint(showerror, e), generating_output)
+        @test length(overlays(BaseExt)) >= 11
         s = Base.SHA1(rand(Xoshiro(1), UInt8, 20))
         for h in (UInt(0), UInt(12345))
             @test hash((BaseExt.SHA1_TYPE_HASH, s.bytes), h) == hash(s, h)
         end
-        # a failed cleanup is logged as natively (the message and the exception)
-        buf = IOBuffer()
-        Logging.with_logger(Logging.ConsoleLogger(buf, Logging.Info)) do
-            BaseExt.log_cleanup_failure("mktempdir cleanup", ErrorException("boom"))
-        end
-        out = String(take!(buf))
-        @test occursin("mktempdir cleanup", out) && occursin("boom", out)
     end
 
     @testset "FileWatching: pidfile locks in a single-process module" begin
