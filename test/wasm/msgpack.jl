@@ -28,6 +28,7 @@ function main()
     d["ch"] = 'é'
     d["v"] = Any[1, "two", 3.0, false, nothing]
     d["floats"] = Float64[1.0, 2.0, 3.5]
+    d["specials"] = Any[-0.0, Inf, 1.0e-310, Float32(-Inf), Float32(1.0e-40)]   # (MsgPack writes hton of the float)
     d["ints"] = collect(Int32(1):Int32(20))          # 20 elements: Array16
     d["bytes"] = UInt8[0x00, 0xff, 0x10]
     d["str8"] = repeat("x", 40)

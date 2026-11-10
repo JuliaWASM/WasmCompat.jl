@@ -20,12 +20,6 @@ MsgPack.jl's `pack` for WasmCodegen's closed world. Overlays (methods of
    a release, with the MsgPack type printed as `T()`: the same text, without Base's default
    `show` of an object, which #76 still calls.
 
-3. **Floats are written by their bits.** MsgPack writes a float as `hton(x)`, which is the
-   intrinsic `bswap_int` of a `Float32`/`Float64`. WasmCodegen compiles that intrinsic with
-   integer shifts in the float's own Wasm type (`f64.shr_u`), which do not exist, so the module
-   does not validate. Here the float's bits are swapped as a `UInt32`/`UInt64`: the same bytes.
-   This is a workaround until WasmCodegen swaps the bytes of floats.
-
 Only packing: `unpack` without a target type builds values of types known only at run time.
 """
 module WasmCompatMsgPackExt
@@ -72,15 +66,6 @@ end
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function MsgPack.pack(io::IO, x)
     pack_value(io, x)
     return nothing
-end
-
-Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function MsgPack.pack_format(io, ::MsgPack.Float32Format, x)
-    write(io, MsgPack.magic_byte(MsgPack.Float32Format))
-    write(io, hton(reinterpret(UInt32, Float32(x))))
-end
-Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function MsgPack.pack_format(io, ::MsgPack.Float64Format, x)
-    write(io, MsgPack.magic_byte(MsgPack.Float64Format))
-    write(io, hton(reinterpret(UInt64, Float64(x))))
 end
 
 Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS @noinline function MsgPack.invalid_pack(io, t, x)

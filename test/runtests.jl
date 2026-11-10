@@ -197,15 +197,7 @@ end
         @test all(T -> !(MsgPack.msgpack_type(T) isa MsgPack.AnyType), MsgPackExt.VALUE_TYPES)
         # (invalid_pack's message: #76's text; the MsgPack type as `T()`, as `show` prints it)
         @test string(MsgPack.IntegerType()) == "$(typeof(MsgPack.IntegerType()))()"
-        @test length(overlays(MsgPackExt)) == 4   # pack(io, x), invalid_pack, the two float formats
-        # (the floats by their bits: the same bytes as MsgPack's own)
-        for x in (1.5, -0.0, NaN, Inf, 1.0e-310), F in (Float32, Float64)
-            io1, io2 = IOBuffer(), IOBuffer()
-            fmt = F === Float32 ? MsgPack.Float32Format() : MsgPack.Float64Format()
-            MsgPack.pack_format(io1, fmt, F(x))
-            write(io2, MsgPack.magic_byte(typeof(fmt))); write(io2, hton(reinterpret(F === Float32 ? UInt32 : UInt64, F(x))))
-            @test take!(io1) == take!(io2)
-        end
+        @test length(overlays(MsgPackExt)) == 2   # pack(io, x), invalid_pack
     end
 
     @testset "PCRE2: the configuration and the module" begin
