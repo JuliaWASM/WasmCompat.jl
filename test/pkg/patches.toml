@@ -152,37 +152,25 @@ from = "7520e65ea75db64db7cecb8be7cd66c1041899ad"
 to = "df26c9425e9adfe2c5c94b1d7d2edb7df22e285e"
 paths = ["src"]
 
-# WasmCodegen: main, no patches (it has gbaraldi/WasmCodegen.jl#68 and #71).
+# WasmCodegen: main, no patches.
 [WasmCodegen]
 repo = "https://github.com/gbaraldi/WasmCodegen.jl"
 branch = "main"
-sha = "0034569817c5ddf1b7d1836df38f1b3d6bb00460"
+sha = "10cff8e4d04e451afe0946f5af90b8d39a76b724"
 
 # WasmBuilder and IRStructurizer: as WasmCodegen's Project.toml [sources] names them. Where it
 # names a branch (WasmBuilder: main), `sha` pins the commit (--check-heads reports a newer one).
 [WasmBuilder]
 from_sources_of = "WasmCodegen"
-# main with gbaraldi/WasmBuilder.jl#2 (structural function types; needed to link the pcre2 and
-# libgit2 import modules)
-sha = "487344fa7243681232353ee3a2d8bc4041487638"
+sha = "0664dafc791c74b1f4cca4f72df86e6bd43503d9"
 
 [IRStructurizer]
 from_sources_of = "WasmCodegen"
 
 [WasmHost]
-repo = "https://github.com/pankgeorg/WasmHost.jl"
+repo = "https://github.com/JuliaWASM/WasmHost.jl"
 branch = "main"
-sha = "93bfd67862dd51eecbd88f757f24dd613a383a15"
-
-# HostPlatform() from the host's tags and Pkg's decompression by the host, in compiled modules
-# (WasmHostPlatformExt, WasmHostPkgExt)
-[[WasmHost.patch]]
-name = "pankgeorg/WasmHost.jl#2 stock-pkg-overlays"
-pr = "pankgeorg/WasmHost.jl#2"
-repo = "https://github.com/pankgeorg/WasmHost.jl"
-merge_base_with = "https://github.com/pankgeorg/WasmHost.jl main"
-from = "bd69a543869f78adfedc2fbfa2c57b9b1f54627f"
-to = "07998846155af0cf9cd8bc30b69d247167191c46"
+sha = "0b3c4c3d16aac58a09747dc7958f96968a1d8365"
 
 [LibGit2_wasm_jll]
 repo = "https://github.com/pankgeorg/LibGit2_wasm_jll.jl"
