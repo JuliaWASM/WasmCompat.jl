@@ -36,7 +36,7 @@ standard library's own methods.
 | `WasmCompatArtifactsExt` | Artifacts | `Overrides.toml` tables parsed in a loop, without a generator whose element type is the abstract `Pair{String}`. | |
 | `WasmCompatPCRE2Ext` | PCRE2_wasm_jll | Base's `Regex` on PCRE2 itself, compiled to WebAssembly: see *Regex* below. Opt-in, through `WasmCompat.pcre2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)` |
 | `WasmCompatLibGit2Ext` | LibGit2_wasm_jll, LibGit2 | Julia's `LibGit2` on libgit2 itself, compiled to WebAssembly: see *Git* below. Opt-in, through `WasmCompat.libgit2_config`. | Needs WasmCodegen's `Config(foreign_functions)` and `Config(import_libraries)`; libgit2's WASI changes are proposed upstream |
-| `WasmCompatSIMDExt` | SIMD | SIMD.jl's intrinsics (each a `Base.llvmcall` of LLVM IR, which WasmCodegen does not compile) as the same operation on each lane, so code written with `SIMD.Vec` compiles as it is. Lane by lane: scalar speed, no SIMD128 (see *Differences*). | A SIMD128 lowering in WasmCodegen would replace the lanes for 16-byte vectors |
+| `WasmCompatSIMDExt` | SIMD | SIMD.jl's intrinsics (each a `Base.llvmcall` of LLVM IR, which WasmCodegen does not compile) as the same operation on each lane, so code written with `SIMD.Vec` compiles as it is. The arithmetic, `sqrt`, `muladd`, `vload` and `vstore` of `Vec{2,Float64}`, `Vec{4,Float32}` and `Vec{2,Float32}` are WasmCodegen's `SIMD128` operations (`v128` instructions); the rest is lane by lane, at scalar speed (see *Differences*). | — |
 | `WasmCompatBaseExt` | WasmCodegen alone | `Base.generating_output()` is `false`: a compiled program never writes a code cache. Every first call of a `Base.OncePerProcess` value reached it (through `__precompile__(false)`) and trapped. | Or `jl_generating_output` → 0 in WasmCodegen itself |
 
 The Tar and ArgTools overlays are the libraries' own definitions with `::Function` arguments made type
@@ -166,15 +166,19 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   Values are shown if they are of a common type (strings, symbols, numbers, versions, UUIDs) or an
   exception; any other value, vectors included, is shown as `(a value of type T)`.
 - **Logging, a code-generator limit:** a log call whose key-value pairs include a value of a type
-  not known at compile time builds a tuple of abstract type in the caller. An example is a caught
-  `err` passed as it is: `@warn "..." exception = err`. WasmCodegen doesn't compile such a tuple
-  (`trim = :safe` reports "a tuple of abstract type Tuple{Any}"), although native trim does. Assert
-  the type at the call (`exception = err::MyError`) or pass a value of a concrete type.
+  not known at compile time, such as a caught `err` passed as it is (`@warn "..." exception = err`),
+  doesn't compile. The macro's keyword pairs, `Base.Pairs{Symbol}` of a
+  `NamedTuple{(:exception,), <:Tuple{Any}}`, are made by a call on a type known only at run time.
+  (The tuple itself compiles since gbaraldi/WasmCodegen.jl#89.) Assert the type at the call
+  (`exception = err::MyError`) or pass a value of a concrete type.
 
 - **SIMD.jl:** a horizontal float reduction (`sum`, `prod` of a `Vec`) adds the lanes left to
   right, where LLVM may associate in any order, so its last bits can differ. `muladd` is computed as
   WebAssembly computes it (core WebAssembly has no fused multiply-add); `fma` is exact as natively.
-  Every lane is a scalar operation: a `Vec` loop computes what it computes natively, at scalar speed.
+  `Vec{2,Float64}`, `Vec{4,Float32}` and `Vec{2,Float32}` arithmetic, `sqrt`, `muladd`, `vload` and
+  `vstore` compile to SIMD128 (`v128`) instructions through WasmCodegen's `SIMD128`; their `muladd` is
+  unfused unless the program is compiled with `Config(relaxed_simd = true)`. Every other operation and
+  vector type is a scalar operation per lane: it computes what it computes natively, at scalar speed.
 
 ## Requirements and known limits
 
@@ -182,22 +186,14 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
 - **WasmCodegen with `WASM_METHODS`.** `WASM_METHODS` and `@wasm_method` are internal to WasmCodegen
   today. Asking the maintainer to make them a supported interface for packages is part of the
   `Config(import_libraries)` discussion upstream.
-- **`verify = :error` does not pass yet.** WasmCodegen's juliac-equivalent verifier infers the
-  program with the native method tables, so it reports the standard library's original code as
-  unresolved even though the module contains the overlay instead. Build with `verify = :warn`.
-  A generic fix in WasmCodegen is under discussion. Code generation is unaffected: `trim = :safe`
-  reports 0 diagnostics.
+- **`verify = :error` passes** for the programs of `test/wasm/` (each build's verifier report is
+  clean): WasmCodegen's juliac-equivalent verifier infers overlaid methods with the module's own
+  inference (gbaraldi/WasmCodegen.jl#60), so it no longer reports the standard library's original
+  code that the overlays replace.
 - **Overlays must not be constant.** WasmCodegen's inference still evaluates calls with constant
   arguments using the native methods (see `WasmCodegen.Runtime.@wasm_method`). Each overlay here
   therefore reads state or performs I/O. For example, the Logging extension reads its logger from a
   global rather than constructing it.
-- **`Tar.list` reads an undefined value at run time** (a null dereference, with no build diagnostic). `Tar.iterate_headers`,
-  which `Tar.list` runs, jumps into its `while` loop with `@goto` (an irreducible loop), and Base's `hasmethod` checks
-  of the callback are loops between that label and the use of the header. IRStructurizer, which WasmCodegen
-  structures functions with, takes such a nested loop for an entry of the irreducible one and carries the header
-  as undefined through it. This is a code-generation issue, not one of this package: with IRStructurizer fixed,
-  `tar.jl` is identical to native in Node and in Bun. `Tar.extract`, `read_tarball` and `tree_hash` do not use
-  `iterate_headers`.
 - **`Tar.extract` sets file modes**, so a program that extracts needs a host with file modes: WasmCodegen's
   `julia_io` host extension (`host_extensions = [:julia_io]`, `js/julia_io.mjs`'s path imports). Without it,
   `chmod` fails with ENOTSUP (WASI preview 1 has no modes) and `Tar.extract` throws an `IOError`.

@@ -184,14 +184,10 @@ end
         names = Set(first(k) for (k, _) in PCRE2Ext.FUNCTIONS)
         @test length(names) == 13 && all(k -> k[2] == "libpcre2-8", first.(PCRE2Ext.FUNCTIONS))
         @test :pcre2_match_8 in names && :pcre2_substring_copy_bynumber_8 in names
-        if hasfield(WasmCodegen.Config, :foreign_functions) && hasfield(WasmCodegen.Config, :import_libraries)
-            c = WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
-            @test length(c.foreign_functions) == 13 && c.import_libraries == ["other", "pcre2"]
-            @test WasmCompat.pcre2_config(c).import_libraries == ["other", "pcre2"]
-            @test_throws ArgumentError WasmCompat.pcre2_config(WasmCodegen.Config(host = :js))
-        else
-            @test_throws ErrorException WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi))
-        end
+        c = WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
+        @test length(c.foreign_functions) == 13 && c.import_libraries == ["other", "pcre2"]
+        @test WasmCompat.pcre2_config(c).import_libraries == ["other", "pcre2"]
+        @test_throws ArgumentError WasmCompat.pcre2_config(WasmCodegen.Config(host = :js))
     end
 
     @testset "LibGit2: the configuration, the module and the overlays" begin
@@ -207,11 +203,9 @@ end
         # the calls with structs or pointer arrays are overlays, not foreign functions
         @test !(:git_clone in names) && !(:git_remote_fetch in names) && !(:git_checkout_tree in names)
         @test length(overlays(LibGit2Ext)) >= 30
-        if hasfield(WasmCodegen.Config, :foreign_functions) && hasfield(WasmCodegen.Config, :import_libraries)
-            c = WasmCompat.libgit2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
-            @test length(c.foreign_functions) == length(fs) && c.import_libraries == ["other", "libgit2"]
-            @test_throws ArgumentError WasmCompat.libgit2_config(WasmCodegen.Config(host = :js))
-        end
+        c = WasmCompat.libgit2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
+        @test length(c.foreign_functions) == length(fs) && c.import_libraries == ["other", "libgit2"]
+        @test_throws ArgumentError WasmCompat.libgit2_config(WasmCodegen.Config(host = :js))
     end
 
     include("simd.jl")
