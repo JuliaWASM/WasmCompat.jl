@@ -261,9 +261,6 @@ end
             for f in ("Project.toml", "src", "ext", "gen")
                 cp(joinpath(dirname(@__DIR__), f), joinpath(pkg, f))
             end
-            for sub in ("TarExt", "ArgToolsExt"), f in readdir(joinpath(pkg, "ext", sub); join = true)
-                rm(f)
-            end
             julia = addenv(`$(Base.julia_cmd()) --startup-file=no`,
                 "JULIA_LOAD_PATH" => join((pkg, Base.active_project(), "@stdlib"), Sys.iswindows() ? ';' : ':'),
                 "JULIA_DEPOT_PATH" => join((joinpath(dir, "depot"), DEPOT_PATH...), Sys.iswindows() ? ';' : ':'))
@@ -272,14 +269,25 @@ end
                 pkgdir(WasmCompat) == ARGS[1] || error("WasmCompat is not the copy")
                 for e in (:WasmCompatTarExt, :WasmCompatArgToolsExt)
                     n = Ref(0)
+                    Base.get_extension(WasmCompat, e) === nothing && error("the extension is not loaded")
                     Base.visit(m -> n[] += m.module === Base.get_extension(WasmCompat, e), WasmCodegen.Runtime.WASM_METHODS)
                     println(n[])
                 end
                 """
-            counts() = parse.(Int, readlines(pipeline(`$julia -e $script $pkg`; stderr = devnull)))
-            @test counts() == [count(m -> !occursin("specialized_", string(m.file)), overlays(TarExt)), 0]
-            run(pipeline(`$julia $(joinpath(pkg, "gen", "specialize_callbacks.jl"))`; stdout = devnull))
-            @test counts() == [length(overlays(TarExt)), length(overlays(ArgToolsExt))]
+            # (a run that fails is `nothing`, not an exception that prints the command and its environment)
+            function counts()
+                out = IOBuffer()
+                p = run(pipeline(ignorestatus(`$julia -e $script $pkg`); stdout = out, stderr = devnull))
+                return success(p) ? parse.(Int, split(String(take!(out)))) : nothing
+            end
+            # without the directories of generated files, then with the directories and no file
+            for empty in (sub -> rm(joinpath(pkg, "ext", sub); recursive = true),
+                          sub -> foreach(rm, readdir(joinpath(pkg, "ext", sub); join = true)))
+                foreach(empty, ("TarExt", "ArgToolsExt"))
+                @test counts() == [count(m -> !occursin("specialized_", string(m.file)), overlays(TarExt)), 0]
+                @test success(run(pipeline(ignorestatus(`$julia $(joinpath(pkg, "gen", "specialize_callbacks.jl"))`); stdout = devnull)))
+                @test counts() == [length(overlays(TarExt)), length(overlays(ArgToolsExt))]
+            end
         end
     end
 
@@ -301,6 +309,13 @@ end
                 @test status() == 2
             end
             chmod(d, 0o644)
+            # a native run that fails leaves no output for NO_BUILD=1 to compare with (a stand-in for Julia:
+            # the build succeeds, the program fails)
+            julia = joinpath(dir, "julia")
+            write(julia, "#!/bin/sh\ncase \"\$*\" in *build.jl*) exit 0;; esac\necho wasm\nexit 1\n"); chmod(julia, 0o755)
+            build = addenv(`bash $(joinpath(wasm, "check.sh")) toml`, "OUT" => dir, "JULIA" => julia, "WASM_RUNTIME" => "")
+            @test run(pipeline(ignorestatus(build); stdout = devnull, stderr = devnull)).exitcode == 1
+            @test status() == 2
         end
     end
 end

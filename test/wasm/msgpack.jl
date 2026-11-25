@@ -1,6 +1,8 @@
 # WasmCompatMsgPackExt: MsgPack.pack of the kind of value a dashboard sends, a Dict{String,Any} of mixed
 # values (scalars, strings of each length class, arrays, nested maps, bytes, an extension), and of
 # concrete containers; a value of a type the closed-world packer does not know is an error
+# (build.jl includes this file with no global of its own for its arguments: a program may have these names)
+prog() = nothing; wasm() = nothing
 module Prog
 import MsgPack
 out(s) = write(Core.stdout, s)

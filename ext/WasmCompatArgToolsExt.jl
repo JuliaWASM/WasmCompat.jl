@@ -34,8 +34,9 @@ if isfile(GENERATED)
         return arg
     end
 else
-    # (the directory's list of files is a dependency of the code cache, so that a file generated later is included)
-    include_dependency(dirname(GENERATED); track_content = true)
+    # (the directory's list of files is a dependency of the code cache, so that a file generated later is included;
+    # the list of this directory where that one is not there)
+    include_dependency(isdir(dirname(GENERATED)) ? dirname(GENERATED) : @__DIR__; track_content = true)
     @warn "WasmCompat: no overlays for ArgTools $(pkgversion(ArgTools)) of Julia $(VERSION.major).$(VERSION.minor) (generate them with gen/specialize_callbacks.jl)"
 end
 
