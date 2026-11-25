@@ -1,5 +1,5 @@
 // node|bun run.mjs MODULE.wasm WORKDIR [ENV=VAL ...]: runs the module's `main` on node:wasi, Node's or Bun's (preopened WORKDIR,
-// the julia_regex and julia_io path imports if the module imports them, and the PCRE2 module, `libpcre2-8.wasm`
+// the julia_io path imports if the module imports them, and the PCRE2 module, `libpcre2-8.wasm`
 // beside MODULE.wasm or $PCRE2_WASM, if it imports "pcre2"; the libgit2 module, `libgit2.wasm` beside MODULE.wasm or
 // $LIBGIT2_WASM, if it imports "libgit2", with a WASI instance of its own over the same preopens and environment and,
 // with $WASMHOST_JS (WasmHost.jl's js/node), WasmHost's fetch import for https; then `main` runs through JSPI),
@@ -26,10 +26,6 @@ skip(engineGaps(mod));
 const libs = new Set(WebAssembly.Module.imports(mod).map((i) => i.module));
 const imports = { ...wasiImportObject(wasi) };
 const bind = [];
-if (libs.has('julia_regex')) {
-  const { makeJuliaRegex } = await import(`${wcg}/julia_regex.mjs`);
-  const rx = makeJuliaRegex(); imports.julia_regex = rx.imports; bind.push(rx);
-}
 if (libs.has('pcre2')) {
   const file = process.env.PCRE2_WASM ?? path.join(path.dirname(wasmPath), 'libpcre2-8.wasm');
   Object.assign(imports, await pcre2Imports(fs.readFileSync(file)));
