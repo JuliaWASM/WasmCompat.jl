@@ -1,6 +1,7 @@
 # The programs of test/wasm/ compiled to WebAssembly by WasmCodegen and run on WASI in Node and in Bun,
 # each run diffed with the same program run natively (test/wasm/check.sh; expected differences in
 # test/wasm/expected/). The module and the native output are built once per program, then run in each runtime.
+# And the native tests of the extensions (test/runtests.jl).
 name: Wasm checks
 
 on:
@@ -17,11 +18,31 @@ permissions:
   contents: read
 
 env:
-  JULIA_VERSION: '1.13.2'
+  # (test/Project.toml's PCRE2_wasm_jll is this Julia's PCRE2: 10.47 since Julia 1.13.3, 10.46 before)
+  JULIA_VERSION: '1.13.4'
   NODE_VERSION: '24'
   BUN_VERSION: '1.4.4'
 
 jobs:
+  native:
+    name: Native tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JULIA_PROJECT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ env.JULIA_VERSION }}
+      - uses: julia-actions/cache@v2
+        with:
+          cache-name: wasm-build-v1
+      - name: Instantiate test/Project.toml
+        run: julia --startup-file=no -e 'using Pkg; Pkg.instantiate(); Pkg.status()'
+      - name: test/runtests.jl
+        run: julia --startup-file=no test/runtests.jl
+
   build:
     name: Build ${{ matrix.check }}
     runs-on: ubuntu-latest

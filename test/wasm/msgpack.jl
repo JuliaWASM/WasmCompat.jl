@@ -1,6 +1,10 @@
 # WasmCompatMsgPackExt: MsgPack.pack of the kind of value a dashboard sends, a Dict{String,Any} of mixed
 # values (scalars, strings of each length class, arrays, nested maps, bytes, an extension), and of
 # concrete containers; a value of a type the closed-world packer does not know is an error
+# (build.jl includes this file with no global of its own for its arguments: a program may have these names,
+# and an argument of its own, which is in the compiled module's ARGS as in the native run's)
+prog() = nothing; wasm() = nothing
+isempty(ARGS) && push!(ARGS, "default")
 module Prog
 import MsgPack
 out(s) = write(Core.stdout, s)
@@ -51,6 +55,8 @@ function main()
         err isa ErrorException ? "ErrorException" : "other error"
     end
     out(string("no mapping: ", r, "\n"))
+    # (check.sh: both runs are of a program with no arguments)
+    out(string("ARGS: ", join(ARGS, ' '), "\n"))
     return 0
 end
 end

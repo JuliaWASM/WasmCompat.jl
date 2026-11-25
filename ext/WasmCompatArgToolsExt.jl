@@ -9,7 +9,7 @@ used only when compiling to Wasm):
   compiles them unspecialized and every call of the callback is dynamic. The overlays are the
   stdlib's own definitions with the callback a type parameter (`f::F where {F<:Function}`, the same
   signature), generated from the stdlib's sources by `gen/specialize_callbacks.jl`
-  (`ArgToolsExt/specialized_<version>.jl`). Upstream: JuliaIO/ArgTools.jl#46.
+  (`ArgToolsExt/specialized_<version>_julia<minor>.jl`). Upstream: JuliaIO/ArgTools.jl#46.
 - `arg_read(f, ::AbstractString)` and `arg_write(f, ::AbstractString)` call `open(f, path;
   lock = false)` directly, where the stdlib goes through `open_nolock(args...; kws...)`, whose
   splat of a callback is another dynamic call.
@@ -19,7 +19,8 @@ module WasmCompatArgToolsExt
 import ArgTools
 import WasmCodegen
 
-const GENERATED = joinpath(@__DIR__, "ArgToolsExt", "specialized_$(pkgversion(ArgTools)).jl")
+# (a file per ArgTools version and Julia minor version, as for Tar)
+const GENERATED = joinpath(@__DIR__, "ArgToolsExt", "specialized_$(pkgversion(ArgTools))_julia$(VERSION.major).$(VERSION.minor).jl")
 if isfile(GENERATED)
     include(GENERATED)
     Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS ArgTools.arg_read(f::F, arg::AbstractString) where {F <: Function} =
@@ -33,7 +34,10 @@ if isfile(GENERATED)
         return arg
     end
 else
-    @warn "WasmCompat: no overlays for ArgTools $(pkgversion(ArgTools)) (generate them with gen/specialize_callbacks.jl)"
+    # (the directory's list of files is a dependency of the code cache, so that a file generated later is included;
+    # the list of this directory where that one is not there)
+    include_dependency(isdir(dirname(GENERATED)) ? dirname(GENERATED) : @__DIR__; track_content = true)
+    @warn "WasmCompat: no overlays for ArgTools $(pkgversion(ArgTools)) of Julia $(VERSION.major).$(VERSION.minor) (generate them with gen/specialize_callbacks.jl)"
 end
 
 end # module

@@ -1,6 +1,6 @@
 # WasmCompat.jl
 
-Julia's standard library for [WasmCodegen.jl](https://github.com/gbaraldi/WasmCodegen.jl)'s closed world.
+Julia's standard library for [WasmCodegen.jl](https://github.com/JuliaWASM/WasmCodegen.jl)'s closed world.
 
 WasmCodegen compiles a Julia program to WebAssembly (Wasm GC) the way `juliac --trim` compiles it
 natively: every call must be resolvable at compile time. Some standard library code is not, either
@@ -42,9 +42,12 @@ standard library's own methods.
 
 The Tar and ArgTools overlays are the libraries' own definitions with `::Function` arguments made type
 parameters. `gen/specialize_callbacks.jl` generates them from the installed Julia's stdlib sources,
-one file per library version (`ext/TarExt/specialized_<version>.jl`). It checks that the printed code
-parses back to the same definitions. For a Tar or ArgTools version without a generated file, the
-extension warns and adds nothing.
+one file per library version and Julia minor version (`ext/TarExt/specialized_<version>_julia<minor>.jl`:
+Julia 1.12 and 1.13 both have Tar 1.10.0, with different sources). It checks that the printed code
+parses back to the same definitions, and `test/runtests.jl` that the committed files are what it
+generates. For a Tar or ArgTools without a generated file, the extension warns and adds no generated
+overlay; the directory of generated files is a dependency of its code cache, so a file generated
+afterwards is included at the next load.
 
 ### Interface for programs
 
@@ -69,7 +72,7 @@ WebAssembly as a separate module: [PCRE2_wasm_jll](https://github.com/pankgeorg/
 offsets are PCRE2's own. Unlike the other extensions, this one is opt-in, because the host must provide the module:
 
 ```julia
-using WasmCodegen, WasmCompat, PCRE2_wasm_jll    # PCRE2_wasm_jll: the PCRE2 of the compiling Julia (10.46 for 1.13.2)
+using WasmCodegen, WasmCompat, PCRE2_wasm_jll    # PCRE2_wasm_jll: the PCRE2 of the compiling Julia (10.47 for Julia 1.13.3 and later)
 config = WasmCompat.pcre2_config(WasmCodegen.Config(host = :wasi))
 WasmCodegen.compile([WasmCodegen.Entry(Program.main, (); name = "main")]; config)
 cp(WasmCompat.pcre2_module(), "libpcre2-8.wasm")   # deploy it with the program
@@ -96,7 +99,7 @@ The program copies patterns and subjects into the PCRE2 module's memory and copi
   frees its pattern only in one. A program that builds the same pattern repeatedly compiles it once.
 - **Size:** the PCRE2 module is 399 KB, 110 KB gzipped (PCRE2's whole 8-bit API; about 140 KB of it is Unicode
   tables). The program itself is no larger than with a host regex engine: the same regex workloads compile to
-  43 KB (15 KB gzipped), against 44 KB with the host-RegExp engine of gbaraldi/WasmCodegen.jl#35.
+  43 KB (15 KB gzipped), against 44 KB with the host-RegExp engine of JuliaWASM/WasmCodegen.jl#35.
 - **Speed** (Node 24, best of 5): about 5× native Julia (with its JIT) per match, about 12× on engine-bound
   matching, and about native on compiling patterns.
 - **Differs from native Julia:** an error PCRE2 detects only while matching can read differently, because the
@@ -106,7 +109,7 @@ The program copies patterns and subjects into the PCRE2 module's memory and copi
 ## Git
 
 Julia's `LibGit2` calls libgit2, a C library a WebAssembly module does not have. With `WasmCompatLibGit2Ext`,
-`LibGit2` runs on libgit2 itself (1.9.7, Julia 1.13.2's), compiled to WebAssembly as a separate module:
+`LibGit2` runs on libgit2 itself (1.9.7, Julia 1.13's), compiled to WebAssembly as a separate module:
 [LibGit2_wasm_jll](https://github.com/pankgeorg/LibGit2_wasm_jll.jl)'s `libgit2.wasm`. `LibGit2`'s Julia code
 runs, and so does its callers': Pkg's `GitTools`, `Types`, `Operations` and `Registry` unchanged clone, fetch,
 open repositories, resolve revisions, read trees and blobs, check out trees, reset, merge (fast-forward) and
@@ -176,7 +179,7 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   not known at compile time, such as a caught `err` passed as it is (`@warn "..." exception = err`),
   doesn't compile. The macro's keyword pairs, `Base.Pairs{Symbol}` of a
   `NamedTuple{(:exception,), <:Tuple{Any}}`, are made by a call on a type known only at run time.
-  (The tuple itself compiles since gbaraldi/WasmCodegen.jl#89.) Assert the type at the call
+  (The tuple itself compiles since JuliaWASM/WasmCodegen.jl#89.) Assert the type at the call
   (`exception = err::MyError`) or pass a value of a concrete type.
 
 - **SIMD.jl:** a horizontal float reduction (`sum`, `prod` of a `Vec`) adds the lanes left to
@@ -189,13 +192,17 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
 
 ## Requirements and known limits
 
-- **Julia 1.13** (tested with 1.13.2). Julia 1.12 loads the package, but its overlays are untested there.
+- **Julia 1.13** (tested with 1.13.4). Julia 1.12 loads the package and its extensions, but nothing is tested
+  there, and less is covered: the TOML extension adds no overlays (they are written for Julia 1.13's
+  `Base.TOML.Printer`), the Tar and ArgTools extensions warn and add no generated overlay (none is generated from
+  1.12's sources), and `pcre2_config` and `libgit2_config` refuse the build (no PCRE2_wasm_jll or LibGit2_wasm_jll
+  is 1.12's PCRE2 10.44 or libgit2 1.9.0).
 - **WasmCodegen with `WASM_METHODS`.** `WASM_METHODS` and `@wasm_method` are internal to WasmCodegen
   today. Asking the maintainer to make them a supported interface for packages is part of the
   `Config(import_libraries)` discussion upstream.
 - **`verify = :error` passes** for the programs of `test/wasm/` (each build's verifier report is
   clean): WasmCodegen's juliac-equivalent verifier infers overlaid methods with the module's own
-  inference (gbaraldi/WasmCodegen.jl#60), so it no longer reports the standard library's original
+  inference (JuliaWASM/WasmCodegen.jl#60), so it no longer reports the standard library's original
   code that the overlays replace.
 - **Overlays must not be constant.** WasmCodegen's inference still evaluates calls with constant
   arguments using the native methods (see `WasmCodegen.Runtime.@wasm_method`). Each overlay here
