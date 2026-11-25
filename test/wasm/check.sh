@@ -21,10 +21,10 @@ if [ "${NO_BUILD:-0}" != 1 ]; then
   rm -rf "$W"; mkdir -p "$W"
   [ "${LIBGIT2:-0}" = 1 ] && rm -rf "$H" && mkdir -p "$H"
   # (the output of a native run that failed is not native.txt, which NO_BUILD=1 would compare with)
-  rm -f "$O/native.txt"
+  rm -f "$O/native.txt" || { echo "check.sh: cannot remove $O/native.txt"; exit 2; }
   WORK=$W $JULIA --startup-file=no -e 'include(popfirst!(ARGS)); rc = Prog.main(); print("\n[main returned $rc]\n")' "$D/$n.jl" > "$O/native.failed.txt" 2>&1 ||
     { tail -20 "$O/native.failed.txt"; echo "$n: the native run failed (see above)"; exit 1; }
-  mv "$O/native.failed.txt" "$O/native.txt"
+  mv "$O/native.failed.txt" "$O/native.txt" || { echo "check.sh: cannot write $O/native.txt"; exit 2; }
 fi
 # (NO_BUILD=1 with nothing built: an error, not a diff with a missing file)
 for f in "$O/$n.wasm" "$O/native.txt"; do [ -f "$f" ] || { echo "check.sh: $f is missing (build without NO_BUILD=1 first)"; exit 2; }; done

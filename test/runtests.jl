@@ -316,6 +316,15 @@ end
             build = addenv(`bash $(joinpath(wasm, "check.sh")) toml`, "OUT" => dir, "JULIA" => julia, "WASM_RUNTIME" => "")
             @test run(pipeline(ignorestatus(build); stdout = devnull, stderr = devnull)).exitcode == 1
             @test status() == 2
+            # and a native output that cannot replace the one of an earlier run (a directory that is not writable)
+            # is an error, not a comparison with that one
+            julia = joinpath(dir, "julia2"); write(julia, "#!/bin/sh\necho wasm\n"); chmod(julia, 0o755)
+            write(joinpath(o, "native.txt"), "wasm\n"); write(joinpath(o, "native.failed.txt"), ""); write(joinpath(o, "build.log"), "")
+            mkpath(joinpath(o, "work")); chmod(o, 0o555)
+            stale = addenv(`bash $(joinpath(wasm, "check.sh")) toml`, "OUT" => dir, "JULIA" => julia, "NODE" => node, "WASM_RUNTIME" => "node")
+            code = run(pipeline(ignorestatus(stale); stdout = devnull, stderr = devnull)).exitcode
+            chmod(o, 0o755)
+            iszero(ccall(:geteuid, Cuint, ())) ? (@test_skip code == 2) : (@test code == 2)
         end
     end
 end
