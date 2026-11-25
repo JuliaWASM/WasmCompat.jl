@@ -163,6 +163,14 @@ end
         empty!(LoggingExt.MAXLOG)
         outs = [typed(Logging.Warn, "once", (; maxlog = 1, i = i); id = :once) for i in 1:3]
         @test outs[1] != "" && outs[2] == "" && outs[3] == ""
+        # ... and a call whose `maxlog` is used up is not made (its message and values are not evaluated)
+        logger = LoggingExt.LOGGER[]
+        @test !Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, :once)
+        @test Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, :another)
+        # a `String` given as `_id` is counted as a `Symbol` is
+        outs = [typed(Logging.Warn, "once", (; maxlog = 2); id = "an id") for i in 1:3]
+        @test outs[1] != "" && outs[2] != "" && outs[3] == ""
+        @test !Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, "an id")
         # a value of a type it does not know
         @test occursin("(a value of type", typed(Logging.Info, "m", (; t = (1, 2))))
         # the program's exceptions
