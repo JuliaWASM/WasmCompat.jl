@@ -118,6 +118,13 @@ end
             @test typed(t; sorted = true) == stock(t; sorted = true)
             @test typed(t) == stock(t)
         end
+        # the parser's array of hexadecimal integers, and integers of every width
+        h = TOML.parse("a = [0xff, 0x01]\nb = [[0x1], [2]]")
+        @test h["a"] isa Vector{UInt64} && typed(h) == stock(h)
+        for T in (Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128)
+            @test typed(Dict("x" => typemax(T))) == stock(Dict("x" => typemax(T)))
+            @test typed(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)])) == stock(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)]))
+        end
         # errors as Base's: no conversion function, a conversion to a non-TOML value
         @test_throws ErrorException typed(Dict{String, Any}("u" => UUID(0)))
         @test_throws ErrorException typed(Dict{String, Any}("u" => UUID(0)); f = x -> x)
