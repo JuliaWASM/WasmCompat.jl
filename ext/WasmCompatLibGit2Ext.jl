@@ -601,27 +601,31 @@ end
 "A caller's option that the module is not given, and that is not `LibGit2`'s default: an error, not a silent drop."
 not_supported(what::String) = throw(ArgumentError("WasmCompat: $what is not supported in Wasm"))
 
-"Throws for a `CheckoutOptions` of a clone with more than a strategy (all that the module's clone is given)."
+"""
+Throws for a `CheckoutOptions` of a clone that checks out (a bare one does not) with more than a strategy, all
+that the module's clone is given: but for what libgit2 does nothing with there, a notify callback without flags
+(or flags without a callback) and the labels of a merge's conflicts.
+"""
 function check_clone_checkout(c::CheckoutOptions)
     c.paths.count == 0 || not_supported("CheckoutOptions(paths)")
     convert(Ptr{UInt8}, c.target_directory) == C_NULL || not_supported("CloneOptions(checkout_opts) with a target_directory")
-    (c.version == 1 && c.notify_cb == C_NULL && c.progress_cb == C_NULL && c.perfdata_cb == C_NULL &&
+    (c.version == 1 && c.progress_cb == C_NULL && c.perfdata_cb == C_NULL &&
      c.baseline == C_NULL && c.baseline_index == C_NULL &&
      c.disable_filters == 0 && c.dir_mode == 0 && c.file_mode == 0 && c.file_open_flags == 0 &&
-     c.notify_flags == Consts.CHECKOUT_NOTIFY_NONE && convert(Ptr{UInt8}, c.ancestor_label) == C_NULL &&
-     convert(Ptr{UInt8}, c.our_label) == C_NULL && convert(Ptr{UInt8}, c.their_label) == C_NULL) ||
+     (c.notify_cb == C_NULL || c.notify_flags == Consts.CHECKOUT_NOTIFY_NONE)) ||
         not_supported("CloneOptions(checkout_opts) with more than a checkout_strategy")
     return nothing
 end
 
 """
 Throws for a `FetchOptions` with a certificate check, a proxy or custom headers (the module's fetch and clone
-are given none). `certificate_cb()` is null here, so a certificate check that is not is the caller's.
+are given none). `certificate_cb()` is null here, so a certificate check that is not is the caller's. No proxy
+(`PROXY_NONE`) is what the module does, also for `PROXY_AUTO`, `LibGit2`'s default: it detects none.
 """
 function check_fetch_options(f::FetchOptions)
     p = f.proxy_opts
     f.callbacks.certificate_check == C_NULL && p.certificate_cb == C_NULL || not_supported("a certificate_check callback")
-    (p.version == 1 && p.proxytype == Consts.PROXY_AUTO && convert(Ptr{UInt8}, p.url) == C_NULL && p.credential_cb == C_NULL) ||
+    (p.version == 1 && (p.proxytype == Consts.PROXY_AUTO || p.proxytype == Consts.PROXY_NONE) && convert(Ptr{UInt8}, p.url) == C_NULL && p.credential_cb == C_NULL) ||
         not_supported("FetchOptions(proxy_opts)")
     f.custom_headers.count == 0 || not_supported("FetchOptions(custom_headers)")
     return nothing
@@ -744,7 +748,7 @@ Base.Experimental.@overlay OV function LibGit2.clone(repo_url::AbstractString, r
                                                      clone_opts::CloneOptions)
     LibGit2.ensure_initialized()
     try
-        check_clone_checkout(clone_opts.checkout_opts)
+        clone_opts.bare == 0 && check_clone_checkout(clone_opts.checkout_opts)
         check_fetch_options(clone_opts.fetch_opts)
         o = slot()
         f = clone_opts.fetch_opts

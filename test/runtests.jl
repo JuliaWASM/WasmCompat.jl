@@ -256,8 +256,9 @@ end
                                          certificate_cb = C_NULL)
             @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(fetch_options(proxy_opts = proxy))
         end
-        @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(
-            fetch_options(proxy_opts = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_NONE, certificate_cb = C_NULL)))
+        # (no proxy is what the module does)
+        @test LibGit2Ext.check_fetch_options(
+            fetch_options(proxy_opts = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_NONE, certificate_cb = C_NULL))) === nothing
         @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(
             fetch_options(proxy_opts = LibGit2.ProxyOptions(version = 2, certificate_cb = C_NULL)))
         @test_throws "FetchOptions(custom_headers)" LibGit2Ext.check_fetch_options(
@@ -273,8 +274,18 @@ end
         @test_throws "CheckoutOptions(paths)" LibGit2Ext.check_clone_checkout(
             LibGit2.CheckoutOptions(paths = LibGit2.StrArrayStruct(Ptr{Cstring}(8), 1)))
         # (what a clone does not give the module: the callbacks, the baselines, another version of the options)
-        for field in (:notify_cb, :progress_cb, :perfdata_cb, :baseline, :baseline_index)
+        for field in (:progress_cb, :perfdata_cb, :baseline, :baseline_index)
             @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(; field => Ptr{Cvoid}(8)))
+        end
+        # (and not what libgit2 does nothing with in a clone: a notify callback or flags without the other, the labels)
+        notify = LibGit2.Consts.CHECKOUT_NOTIFY_ALL
+        @test LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(notify_cb = Ptr{Cvoid}(8))) === nothing
+        @test LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(notify_flags = notify)) === nothing
+        @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(notify_cb = Ptr{Cvoid}(8), notify_flags = notify))
+        GC.@preserve url begin
+            label = Base.unsafe_convert(Cstring, url)
+            @test LibGit2Ext.check_clone_checkout(
+                LibGit2.CheckoutOptions(ancestor_label = label, our_label = label, their_label = label)) === nothing
         end
         @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(version = 2))
         # the callbacks are dropped; a certificate check that is not null is an error, a null one is not
