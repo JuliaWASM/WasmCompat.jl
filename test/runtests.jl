@@ -237,10 +237,21 @@ end
     include("simd.jl")
 
     @testset "generated overlays are current" begin
-        # (the generator writes for this Julia's Tar and ArgTools; compare when they are the ones generated)
-        for (mod, sub) in ((Tar, "TarExt"), (ArgTools, "ArgToolsExt"))
-            file = joinpath(dirname(@__DIR__), "ext", sub, "specialized_$(pkgversion(mod)).jl")
-            @test isfile(file)
+        # (the generator writes for this Julia's Tar and ArgTools: its output is the committed files, where
+        # this Julia's are committed)
+        mktempdir() do dir
+            gen = joinpath(dirname(@__DIR__), "gen", "specialize_callbacks.jl")
+            run(pipeline(`$(Base.julia_cmd()) --startup-file=no --project=$(Base.active_project()) $gen $dir`; stdout = devnull))
+            for (mod, sub) in ((Tar, "TarExt"), (ArgTools, "ArgToolsExt"))
+                name = "specialized_$(pkgversion(mod))_julia$(VERSION.major).$(VERSION.minor).jl"
+                file = joinpath(dirname(@__DIR__), "ext", sub, name)
+                @test isfile(joinpath(dir, sub, name))
+                if isfile(file)
+                    @test read(file, String) == read(joinpath(dir, sub, name), String)
+                else
+                    @test_skip isfile(file)
+                end
+            end
         end
     end
 end

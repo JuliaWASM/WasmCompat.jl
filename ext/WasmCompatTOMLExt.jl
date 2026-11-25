@@ -21,6 +21,11 @@ module WasmCompatTOMLExt
 
 import TOML
 import WasmCodegen
+
+# (Julia 1.12: the printer is the TOML standard library's own, not `Base.TOML.Printer`, and these
+# overlays are not written for it: the extension loads and adds nothing)
+@static if isdefined(Base.TOML, :Printer)
+
 using Base: IdSet
 using Base.TOML: Parser, Err, ParserError, ErrOverflowError, take_string_or_substring
 using Base.TOML.Printer: printkey, BaseTOMLValue
@@ -245,5 +250,7 @@ for (name, T1, T2, n1, n2) in (("integer", Int64, Int128, 17, 33),
         return v
     end
 end
+
+end # @static if isdefined(Base.TOML, :Printer)
 
 end # module

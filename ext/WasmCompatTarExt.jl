@@ -8,7 +8,7 @@ only when compiling to Wasm; native code is unchanged):
   `callback::Function` or `emit::Function` and pass them on without calling them, so Julia compiles
   them unspecialized and every call of the callback is dynamic. The overlays are Tar's own
   definitions with each such argument a type parameter (the same signature), generated from the
-  stdlib's sources by `gen/specialize_callbacks.jl` (`TarExt/specialized_<version>.jl`).
+  stdlib's sources by `gen/specialize_callbacks.jl` (`TarExt/specialized_<version>_julia<minor>.jl`).
   Upstream: JuliaIO/Tar.jl#206.
 - `read_standard_header`'s message for a stream that is no tarball takes the error's message as
   the `String` it is (`err.msg::String`), where `String(err.msg)` is a dynamic call (also in #206).
@@ -26,11 +26,13 @@ module WasmCompatTarExt
 import Tar
 import WasmCodegen
 
-const GENERATED = joinpath(@__DIR__, "TarExt", "specialized_$(pkgversion(Tar)).jl")
+# (a file per Tar version and Julia minor version: Julia 1.12 and 1.13 both have Tar 1.10.0, with
+# different sources)
+const GENERATED = joinpath(@__DIR__, "TarExt", "specialized_$(pkgversion(Tar))_julia$(VERSION.major).$(VERSION.minor).jl")
 if isfile(GENERATED)
     include(GENERATED)
 else
-    @warn "WasmCompat: no callback overlays for Tar $(pkgversion(Tar)) (generate them with gen/specialize_callbacks.jl)"
+    @warn "WasmCompat: no callback overlays for Tar $(pkgversion(Tar)) of Julia $(VERSION.major).$(VERSION.minor) (generate them with gen/specialize_callbacks.jl)"
 end
 
 # `occursin(r"^0* *$", version)` of the version field (`read_header_str`: the bytes before the first NUL)
