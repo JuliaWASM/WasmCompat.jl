@@ -41,7 +41,8 @@ jobs:
           - { check: artifacts, pcre2: '0', libgit2: '0' }
           - { check: simd, pcre2: '0', libgit2: '0' }
           - { check: msgpack, pcre2: '0', libgit2: '0' }
-          - { check: git, pcre2: '1', libgit2: '1' }
+          # (git: the modes of a checkout's executable files, as tar)
+          - { check: git, pcre2: '1', libgit2: '1', ext: julia_io }
     env:
       JULIA_PROJECT: test
       PCRE2: ${{ matrix.pcre2 }}
