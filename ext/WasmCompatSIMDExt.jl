@@ -112,6 +112,11 @@ _minnum(a, b) = isnan(a) ? b : isnan(b) ? a : min(a, b)
 _maxnum(a, b) = isnan(a) ? b : isnan(b) ? a : max(a, b)
 # (`pow` of a negative base and an exponent that is not an integer is libm's NaN, or its limit for -Inf; Julia's `^` throws)
 function _pow(x::T, y::T) where {T}
+    # (a base of ±0: its sign for an odd integer exponent, which Julia's `^` loses for a large one)
+    if x == 0 && y != 0 && !isnan(y)
+        z = isinteger(y) && !isinteger(y / 2) ? x : zero(T)
+        return y < 0 ? inv(z) : z
+    end
     (x < 0 && isfinite(y) && !isinteger(y)) || return x ^ y
     return isfinite(x) ? T(NaN) : y < 0 ? zero(T) : T(Inf)
 end
@@ -231,33 +236,42 @@ end
     ntuple(k -> VecElement(k == Int(i) + 1 ? v : x[k].value), Val(N))
 @lane @inline SI.constantvector(v::T, ::Type{LVec{N,T}}) where {N, T} = ntuple(_ -> VecElement(v), Val(N))
 @inline _lane(x, y, ::Val{N}, j) where {N} = j < N ? x[j + 1].value : y[j - N + 1].value
-# (an `:undef` index is a lane of any value natively: here the first of `x`)
-@inline _index(i) = i === :undef ? 0 : Int(i)
+# (an `:undef` index is a lane of any value natively: here the first of `x`; another index is an `Integer`,
+# as SIMD.jl asserts)
+@inline _index(i) = i === :undef ? 0 : Int(i::Integer)
 @lane @inline SI.shufflevector(x::LVec{N,T}, y::LVec{N,T}, ::Val{I}) where {N, T, I} =
     ntuple(k -> VecElement(_lane(x, y, Val(N), _index(I[k]))), Val(length(I)))
+# (one vector: the second is undefined natively, so a lane of it is a lane of any value, here of `x`)
 @lane @inline SI.shufflevector(x::LVec{N,T}, ::Val{I}) where {N, T, I} =
-    ntuple(k -> VecElement(x[_index(I[k]) + 1].value), Val(length(I)))
+    ntuple(k -> VecElement(_lane(x, x, Val(N), _index(I[k]))), Val(length(I)))
 
 ## Conversions
 for f in (:fptrunc, :fpext, :uitofp, :sitofp)
     @eval @lane @inline SI.$f(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1, T2} = _m1(a -> T2(a), x)
 end
-# (toward zero, as LLVM's; `T2(a)` throws for a value that is not an integer)
-for f in (:fptoui, :fptosi)
-    @eval @lane @inline SI.$f(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1, T2} = _m1(a -> unsafe_trunc(T2, a), x)
+# (toward zero, as LLVM's; `T2(a)` throws for a value that is not an integer. The intrinsic is signed or unsigned,
+# whatever `T2` is, and `T2` gets the integer's bits: of a `Bool`, the lowest, the one Julia reads of the native byte)
+for (f, int) in ((:fptoui, :_uint), (:fptosi, :_sint))
+    @eval @lane @inline SI.$f(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1, T2} = _m1(a -> unsafe_trunc($int(T2), a) % T2, x)
 end
 @lane @inline SI.trunc(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> a % T2, x)
 @lane @inline SI.zext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> unsigned(a) % T2, x)
 @lane @inline SI.sext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> signed(a) % T2, x)
 @lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::LVec{N,T2}) where {N, T1, T2} =
     sizeof(T1) == sizeof(T2) ? _m1(a -> reinterpret(T1, a), x) : _bitcast_size(LVec{N,T1}, LVec{N,T2})
-@lane @inline SI.bitcast(::Type{T1}, x::T2) where {T1 <: Union{FT, IT}, T2 <: Union{FT, IT}} = reinterpret(T1, x)
-@noinline _bitcast_size(T1, T2) =
+@lane @inline SI.bitcast(::Type{T1}, x::T2) where {T1 <: Union{FT, IT}, T2 <: Union{FT, IT}} =
+    sizeof(T1) == sizeof(T2) ? reinterpret(T1, x) : _bitcast_size(T1, T2)
+# (SIMD.jl compares the sizes of the Julia types, a vector's with its padding: where those are equal and the bits are
+# not, as for 3 lanes of UInt8 and a UInt32, the native error is LLVM's, for its invalid bitcast)
+@noinline function _bitcast_size(T1, T2)
+    sizeof(T1) == sizeof(T2) && error("invalid bitcast from $T2 ($(8 * _bytes(T2)) bits) to $T1 ($(8 * _bytes(T1)) bits)")
     throw(ArgumentError("size of conversion type ($T1: $(8 * sizeof(T1))) must be equal to the vector type ($T2: $(8 * sizeof(T2)))"))
+end
 # to another number of lanes, or between a vector and a scalar: the same bytes, lanes in memory order
 # (little-endian, as on every platform WasmCodegen and SIMD.jl's tests know)
 _uint(::Type{T}) where {T} = sizeof(T) == 1 ? UInt8 : sizeof(T) == 2 ? UInt16 : sizeof(T) == 4 ? UInt32 :
     sizeof(T) == 8 ? UInt64 : UInt128
+_sint(::Type{T}) where {T} = signed(_uint(T))
 @inline _byte(x::LVec{N,T}, j::Int) where {N, T} =
     (reinterpret(_uint(T), x[j ÷ sizeof(T) + 1].value) >> (8 * (j % sizeof(T)))) % UInt8
 @inline function _from_bytes(::Type{T1}, x::LVec, k::Int) where {T1}
@@ -269,6 +283,7 @@ _uint(::Type{T}) where {T} = sizeof(T) == 1 ? UInt8 : sizeof(T) == 2 ? UInt16 : 
     return reinterpret(T1, u)
 end
 @inline _bytes(::Type{LVec{N,T}}) where {N, T} = N * sizeof(T)
+@inline _bytes(::Type{T}) where {T} = sizeof(T)
 @inline function _bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2}
     return ntuple(k -> VecElement(_from_bytes(T1, x, k - 1)), Val(N1))
 end
