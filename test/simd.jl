@@ -55,6 +55,11 @@ import SIMD
             @test near(L(f)(T(0.75)), getfield(SI, f)(T(0.75)))
         end
         @test near(L(:pow)(p, z), SI.pow(p, z))
+        # pow of a negative base: NaN for an exponent that is not an integer (Julia's `^` throws), and the limits
+        b = lv(T[-1, -8, -2, -0.5, -Inf, -Inf, -Inf, -Inf, -2, -2, -1, NaN])
+        e = lv(T[0.5, 1 / 3, 3, -2, 0.5, -0.5, 3, -3, Inf, -Inf, NaN, 0.5])
+        @test_throws DomainError T(-1)^T(0.5)
+        @test same(L(:pow)(b, e), SI.pow(b, e))
         for flag in (:oeq, :one, :ogt, :oge, :olt, :ole, :ord, :uno, :ueq, :une, :ugt, :uge, :ult, :ule, :false, :true)
             f = Symbol("fcmp_", flag)
             @test same(L(f)(x, y), getfield(SI, f)(x, y))
@@ -109,10 +114,16 @@ import SIMD
         @test same(L(:constantvector)(2.5, SIMD.LVec{4,Float64}), SI.constantvector(2.5, SIMD.LVec{4,Float64}))
         @test same(L(:shufflevector)(x, y, Val((0, 5, 2, 7))), SI.shufflevector(x, y, Val((0, 5, 2, 7))))
         @test same(L(:shufflevector)(x, Val((3, 2, 1, 0, 0))), SI.shufflevector(x, Val((3, 2, 1, 0, 0))))
+        # an `:undef` index: a lane of any value (the others as natively)
+        @test same(L(:shufflevector)(x, Val((2, :undef, 0)))[[1, 3]], SI.shufflevector(x, Val((2, :undef, 0)))[[1, 3]])
+        @test same(L(:shufflevector)(x, y, Val((:undef, 6)))[2], SI.shufflevector(x, y, Val((:undef, 6)))[2])
         i = lv(Int32[-3, 7, 1 << 20, 0])
         @test same(L(:sitofp)(SIMD.LVec{4,Float64}, i), SI.sitofp(SIMD.LVec{4,Float64}, i))
-        @test same(L(:fptosi)(SIMD.LVec{4,Int64}, x .|> v -> VecElement(floor(v.value))),
-                   SI.fptosi(SIMD.LVec{4,Int64}, x .|> v -> VecElement(floor(v.value))))
+        # (toward zero: 1.5 is 1 and -2.5 is -2)
+        fr = lv([1.5, -2.5, 3.25, 200.75])
+        @test same(L(:fptosi)(SIMD.LVec{4,Int64}, fr), SI.fptosi(SIMD.LVec{4,Int64}, fr))
+        @test same(L(:fptosi)(SIMD.LVec{4,Int32}, fr), SI.fptosi(SIMD.LVec{4,Int32}, fr))
+        @test same(L(:fptoui)(SIMD.LVec{4,UInt8}, lv(Float32[1.5, 0.9, 3.25, 200.75])), SI.fptoui(SIMD.LVec{4,UInt8}, lv(Float32[1.5, 0.9, 3.25, 200.75])))
         @test same(L(:fptrunc)(SIMD.LVec{4,Float32}, x), SI.fptrunc(SIMD.LVec{4,Float32}, x))
         @test same(L(:fpext)(SIMD.LVec{4,Float64}, lv(Float32[1.5, 2, 3, 4])), SI.fpext(SIMD.LVec{4,Float64}, lv(Float32[1.5, 2, 3, 4])))
         @test same(L(:sext)(SIMD.LVec{4,Int64}, i), SI.sext(SIMD.LVec{4,Int64}, i))
@@ -120,8 +131,22 @@ import SIMD
         @test same(L(:trunc)(SIMD.LVec{4,Int8}, i), SI.trunc(SIMD.LVec{4,Int8}, i))
         @test same(L(:bitcast)(SIMD.LVec{4,UInt64}, x), SI.bitcast(SIMD.LVec{4,UInt64}, x))
         @test same(L(:bitcast)(UInt64, 1.5), SI.bitcast(UInt64, 1.5))
+        # to another number of lanes, and between a vector and a scalar: the same bytes
+        for (T, v) in ((SIMD.LVec{8,UInt32}, x), (SIMD.LVec{2,UInt128}, x), (SIMD.LVec{32,UInt8}, x), (SIMD.LVec{16,Int16}, x),
+                       (SIMD.LVec{2,Float64}, lv(UInt32[1, 0x3ff80000, 0xdeadbeef, 0xc0000000])), (SIMD.LVec{2,Float32}, lv([-1.5f0, 2.0f0])),
+                       (SIMD.LVec{4,Float32}, lv(Int8.(-8:7))), (SIMD.LVec{2,Float64}, typemax(UInt128) >> 3), (SIMD.LVec{8,Bool}, 0x0100010100000001),
+                       (UInt64, lv([1.5f0, -2.0f0])), (Float64, lv(UInt8.(1:8))), (UInt128, lv([1.5, -2.5])), (Int16, lv(Bool[1, 0])))
+            @test same(L(:bitcast)(T, v), SI.bitcast(T, v))
+        end
+        @test_throws ArgumentError SI.bitcast(SIMD.LVec{4,UInt32}, x)
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{4,UInt32}, x)
+        @test_throws ArgumentError L(:bitcast)(UInt32, x)
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{4,UInt32}, 1.5)
         m = lv(Bool[1, 0, 1, 1])
         @test same(L(:bitmask)(m), SI.bitmask(m))
+        @test same(L(:bitmask)(ntuple(k -> VecElement(isodd(k)), 128)), SI.bitmask(ntuple(k -> VecElement(isodd(k)), 128)))
+        @test_throws ArgumentError("vector length 129 must be <= 128") SI.bitmask(ntuple(k -> VecElement(true), 129))
+        @test_throws ArgumentError("vector length 129 must be <= 128") L(:bitmask)(ntuple(k -> VecElement(true), 129))
         @test same(L(:reduce_add)(m), SI.reduce_add(m))
     end
 

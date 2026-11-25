@@ -44,6 +44,13 @@ function main()
     vstore(y, c, 1, Vec{4,Bool}((true, false, true, false)))
     out("stores = $(join(c, ", "))\n")
     out("masked load = $(show_vec(vload(Vec{4,Float64}, a, 5, Vec{4,Bool}((false, true, true, false)))))\n")
+    # as natively: a conversion to integers truncates, a negative base with an exponent that is not an integer is
+    # NaN, an `:undef` index of a shuffle is any lane, a reinterpretation to another number of lanes is of the same bytes
+    f = vload(Vec{2,Float64}, a, 1) * Vec{2,Float64}((1.5, -1.25))
+    out("truncating convert = $(show_vec(convert(Vec{2,Int64}, f)))\n")
+    out("pow = $(show_vec((vload(Vec{2,Float64}, a, 1) * Vec{2,Float64}((-1.0, 2.0)))^Vec{2,Float64}((0.5, 0.5))))\n")
+    out("shuffle with undef = $(shufflevector(f, Val((1, :undef)))[1])\n")
+    out("reinterpret = $(show_vec(reinterpret(Vec{4,UInt32}, f))) $(show_vec(reinterpret(Vec{2,Float64}, reinterpret(Vec{16,UInt8}, f)))) $(reinterpret(UInt128, f))\n")
     # vectors of 16 bytes of floats (and Vec{2,Float32}): WasmCodegen's SIMD128 operations, v128 instructions
     p = Vec{2,Float64}((1.5, -2.25)); q = Vec{2,Float64}((0.5, 4.0))
     out("f64x2 = $(show_vec(p + q)) $(show_vec(p - q)) $(show_vec(p * q)) $(show_vec(p / q)) $(show_vec(-p)) $(show_vec(abs(p)))\n")

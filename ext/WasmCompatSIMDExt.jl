@@ -110,8 +110,13 @@ end
 ## Binary float intrinsics (minnum/maxnum: the operand that is not NaN; minimum/maximum: NaN wins)
 _minnum(a, b) = isnan(a) ? b : isnan(b) ? a : min(a, b)
 _maxnum(a, b) = isnan(a) ? b : isnan(b) ? a : max(a, b)
+# (`pow` of a negative base and an exponent that is not an integer is libm's NaN, or its limit for -Inf; Julia's `^` throws)
+function _pow(x::T, y::T) where {T}
+    (x < 0 && isfinite(y) && !isinteger(y)) || return x ^ y
+    return isfinite(x) ? T(NaN) : y < 0 ? zero(T) : T(Inf)
+end
 for (f, g) in ((:minnum, :_minnum), (:maxnum, :_maxnum), (:minimum, :min), (:maximum, :max),
-               (:copysign, :copysign), (:pow, :^))
+               (:copysign, :copysign), (:pow, :_pow))
     @eval @lane @inline SI.$f(x::LVec{N,T}, y::LVec{N,T}, ::F = nothing) where {N, T <: FT, F <: SI.FPFlags} = _m2($g, x, y)
 end
 for (f, g) in ((:fma, :fma), (:fmuladd, :muladd))
@@ -226,20 +231,53 @@ end
     ntuple(k -> VecElement(k == Int(i) + 1 ? v : x[k].value), Val(N))
 @lane @inline SI.constantvector(v::T, ::Type{LVec{N,T}}) where {N, T} = ntuple(_ -> VecElement(v), Val(N))
 @inline _lane(x, y, ::Val{N}, j) where {N} = j < N ? x[j + 1].value : y[j - N + 1].value
+# (an `:undef` index is a lane of any value natively: here the first of `x`)
+@inline _index(i) = i === :undef ? 0 : Int(i)
 @lane @inline SI.shufflevector(x::LVec{N,T}, y::LVec{N,T}, ::Val{I}) where {N, T, I} =
-    ntuple(k -> VecElement(_lane(x, y, Val(N), Int(I[k]))), Val(length(I)))
+    ntuple(k -> VecElement(_lane(x, y, Val(N), _index(I[k]))), Val(length(I)))
 @lane @inline SI.shufflevector(x::LVec{N,T}, ::Val{I}) where {N, T, I} =
-    ntuple(k -> VecElement(x[Int(I[k]) + 1].value), Val(length(I)))
+    ntuple(k -> VecElement(x[_index(I[k]) + 1].value), Val(length(I)))
 
 ## Conversions
-for f in (:fptrunc, :fpext, :fptoui, :fptosi, :uitofp, :sitofp)
+for f in (:fptrunc, :fpext, :uitofp, :sitofp)
     @eval @lane @inline SI.$f(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1, T2} = _m1(a -> T2(a), x)
+end
+# (toward zero, as LLVM's; `T2(a)` throws for a value that is not an integer)
+for f in (:fptoui, :fptosi)
+    @eval @lane @inline SI.$f(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1, T2} = _m1(a -> unsafe_trunc(T2, a), x)
 end
 @lane @inline SI.trunc(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> a % T2, x)
 @lane @inline SI.zext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> unsigned(a) % T2, x)
 @lane @inline SI.sext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> signed(a) % T2, x)
-@lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::LVec{N,T2}) where {N, T1, T2} = _m1(a -> reinterpret(T1, a), x)
+@lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::LVec{N,T2}) where {N, T1, T2} =
+    sizeof(T1) == sizeof(T2) ? _m1(a -> reinterpret(T1, a), x) : _bitcast_size(LVec{N,T1}, LVec{N,T2})
 @lane @inline SI.bitcast(::Type{T1}, x::T2) where {T1 <: Union{FT, IT}, T2 <: Union{FT, IT}} = reinterpret(T1, x)
+@noinline _bitcast_size(T1, T2) =
+    throw(ArgumentError("size of conversion type ($T1: $(8 * sizeof(T1))) must be equal to the vector type ($T2: $(8 * sizeof(T2)))"))
+# to another number of lanes, or between a vector and a scalar: the same bytes, lanes in memory order
+# (little-endian, as on every platform WasmCodegen and SIMD.jl's tests know)
+_uint(::Type{T}) where {T} = sizeof(T) == 1 ? UInt8 : sizeof(T) == 2 ? UInt16 : sizeof(T) == 4 ? UInt32 :
+    sizeof(T) == 8 ? UInt64 : UInt128
+@inline _byte(x::LVec{N,T}, j::Int) where {N, T} =
+    (reinterpret(_uint(T), x[j ÷ sizeof(T) + 1].value) >> (8 * (j % sizeof(T)))) % UInt8
+@inline function _from_bytes(::Type{T1}, x::LVec, k::Int) where {T1}
+    U = _uint(T1)
+    u = zero(U)
+    for b in 0:sizeof(T1)-1
+        u |= U(_byte(x, k * sizeof(T1) + b)) << (8 * b)
+    end
+    return reinterpret(T1, u)
+end
+@inline _bytes(::Type{LVec{N,T}}) where {N, T} = N * sizeof(T)
+@inline function _bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2}
+    return ntuple(k -> VecElement(_from_bytes(T1, x, k - 1)), Val(N1))
+end
+@lane @inline SI.bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2} =
+    _bytes(LVec{N1,T1}) == _bytes(LVec{N2,T2}) ? _bitcast(LVec{N1,T1}, x) : _bitcast_size(LVec{N1,T1}, LVec{N2,T2})
+@lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::T2) where {N, T1, T2 <: Union{FT, IT, Int128, UInt128}} =
+    _bytes(LVec{N,T1}) == sizeof(T2) ? _bitcast(LVec{N,T1}, (VecElement(x),)) : _bitcast_size(LVec{N,T1}, T2)
+@lane @inline SI.bitcast(::Type{T1}, x::LVec{N,T2}) where {N, T1 <: Union{FT, IT, Int128, UInt128}, T2} =
+    sizeof(T1) == _bytes(LVec{N,T2}) ? _bitcast(LVec{1,T1}, x)[1].value : _bitcast_size(T1, LVec{N,T2})
 
 ## Horizontal reductions (left to right; see the module's documentation)
 @inline _red(f, x::LVec{N}) where {N} = (s = x[1].value; for i in 2:N; s = f(s, x[i].value); end; s)
@@ -255,6 +293,7 @@ for (f, g) in ((:reduce_and, :&), (:reduce_or, :|), (:reduce_mul, :*), (:reduce_
 end
 @lane @inline SI.reduce_add(x::LVec{N,Bool}) where {N} = (s = 0; for i in 1:N; s += x[i].value; end; s)
 @lane @inline function SI.bitmask(x::LVec{N,Bool}) where {N}
+    N > 128 && throw(ArgumentError("vector length $N must be <= 128"))
     U = N <= 8 ? UInt8 : N <= 16 ? UInt16 : N <= 32 ? UInt32 : N <= 64 ? UInt64 : UInt128
     m = zero(U)
     for i in 1:N
