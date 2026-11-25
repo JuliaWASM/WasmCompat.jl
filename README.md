@@ -144,12 +144,16 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
 - **No callbacks.** libgit2 calls no Julia function: remotes are public https (TLS is the host's) or local paths;
   a remote that asks for credentials is libgit2's `EAUTH` error ("remote authentication required but no callback
   set"); transfer progress is not reported (Pkg's progress bar stays empty). What a caller asks for and cannot
-  have is an `ArgumentError`: a `:certificate_check` callback, `FetchOptions(proxy_opts)` or `(custom_headers)`,
-  a clone's `CheckoutOptions` with more than a strategy, `approve`/`reject` of a payload holding a credential.
+  have is an `ArgumentError`: a certificate check that is not null (a `:certificate_check` callback, or one in a
+  `FetchOptions`), `FetchOptions(proxy_opts)` or `(custom_headers)`, a clone's `CheckoutOptions` with more than a
+  strategy.
 - **WASI preview 1:** no permission bits, so the module sets `core.filemode = false` for each repository it opens
   (a work tree is not dirty by mode), and the files git records as executable are made executable after a
   checkout (not a dry run) through the program's `chmod` (WasmCodegen's `julia_io` host extension; without it
-  they stay non-executable). No ssh, no credential helpers.
+  they stay non-executable). These are not libgit2's own modes: every executable entry of the tree that is a
+  file in the work tree is made executable, also one the checkout did not write (unchanged under `CHECKOUT_SAFE`)
+  and whatever `CheckoutOptions(file_mode)`; `reset!` does so in the work tree, not in a `target_directory`.
+  No ssh, no credential helpers.
 - **Not in Wasm:** non-fast-forward `merge!`, `merge!` of FETCH_HEAD, `CheckoutOptions(paths)`. Pkg uses none.
 - **Node 24:** run Node with `--no-turbo-fast-api-calls`: a node:wasi call that allocates while on a JSPI stack can
   abort the process (`Check failed: isolate_->IsOnCentralStack()`). Bun needs no flag.
@@ -240,7 +244,7 @@ filesystem (a browser's WASI shim must give both instances the same directory ob
   With `LIBGIT2=1 PCRE2=1`, `git.jl` runs the operations Pkg performs through `LibGit2` on repositories it makes
   (init/add!/commit, objects, trees and blobs, HEAD and branches, configuration, remotes, local and file:// clones,
   fetch with Pkg's refspec, checkout into a directory, isdirty, reset!, fast-forward merge!, rebase!, errors;
-  with `check.sh git julia_io`, the modes of a checkout's executable files and of a dry run);
+  with `check.sh git julia_io`, the modes of executable files after a checkout, a dry run and a `reset!`);
   with `NET=1 WASM_ENV=NET=1 WASMHOST_JS=<WasmHost.jl>/js/node` also a shallow https clone and an unshallow fetch.
 
 ## License
