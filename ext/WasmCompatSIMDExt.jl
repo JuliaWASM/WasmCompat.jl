@@ -258,19 +258,26 @@ end
 @lane @inline SI.zext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> unsigned(a) % T2, x)
 @lane @inline SI.sext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> signed(a) % T2, x)
 # (a `Bool` is the lowest bit of its byte, the one Julia reads of the native byte: the other bits, which the native byte
-# keeps, are not in a `Bool` here. The lane types are those SIMD.jl has an LLVM type for: another, a pointer, is its
-# `KeyError`, of the source first)
+# keeps, are not in a `Bool` here)
 @inline _cast(::Type{T1}, a) where {T1} = reinterpret(T1, a)
 @inline _cast(::Type{Bool}, a) = isodd(a % UInt8)
+# The checks of SIMD.jl's one `bitcast`, in its order: the sizes of the Julia types, a vector's with its padding
+# (ArgumentError); the lane types, of the source first, which are those it has an LLVM type for (another, a pointer,
+# is its KeyError); and the bits, where the native error is LLVM's, for its invalid bitcast (as for 3 lanes of UInt8
+# and a UInt32, of one padded size)
+@inline _llvm_type(::Type{LVec{N,T}}) where {N, T} = _llvm_type(T)
 @inline _llvm_type(::Type{T}) where {T <: Union{FT, IT, Int128, UInt128}} = nothing
 @noinline _llvm_type(::Type{T}) where {T} = throw(KeyError(T))
-@inline _llvm_types(::Type{T1}, ::Type{T2}) where {T1, T2} = (_llvm_type(T2); _llvm_type(T1))
+@inline function _bitcast_check(::Type{T1}, ::Type{T2}) where {T1, T2}
+    sizeof(T1) == sizeof(T2) || _bitcast_size(T1, T2)
+    _llvm_type(T2); _llvm_type(T1)
+    _bytes(T1) == _bytes(T2) || _bitcast_size(T1, T2)
+    return nothing
+end
 @lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::LVec{N,T2}) where {N, T1, T2} =
-    sizeof(T1) == sizeof(T2) ? (_llvm_types(T1, T2); _m1(a -> _cast(T1, a), x)) : _bitcast_size(LVec{N,T1}, LVec{N,T2})
+    (_bitcast_check(LVec{N,T1}, LVec{N,T2}); _m1(a -> _cast(T1, a), x))
 @lane @inline SI.bitcast(::Type{T1}, x::T2) where {T1 <: Union{FT, IT}, T2 <: Union{FT, IT}} =
-    sizeof(T1) == sizeof(T2) ? _cast(T1, x) : _bitcast_size(T1, T2)
-# (SIMD.jl compares the sizes of the Julia types, a vector's with its padding: where those are equal and the bits are
-# not, as for 3 lanes of UInt8 and a UInt32, the native error is LLVM's, for its invalid bitcast)
+    (_bitcast_check(T1, T2); _cast(T1, x))
 @noinline function _bitcast_size(T1, T2)
     sizeof(T1) == sizeof(T2) && error("invalid bitcast from $T2 ($(8 * _bytes(T2)) bits) to $T1 ($(8 * _bytes(T1)) bits)")
     throw(ArgumentError("size of conversion type ($T1: $(8 * sizeof(T1))) must be equal to the vector type ($T2: $(8 * sizeof(T2)))"))
@@ -293,15 +300,14 @@ end
 @inline _bytes(::Type{LVec{N,T}}) where {N, T} = N * sizeof(T)
 @inline _bytes(::Type{T}) where {T} = sizeof(T)
 @inline function _bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2}
-    _llvm_types(T1, T2)
     return ntuple(k -> VecElement(_from_bytes(T1, x, k - 1)), Val(N1))
 end
 @lane @inline SI.bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2} =
-    _bytes(LVec{N1,T1}) == _bytes(LVec{N2,T2}) ? _bitcast(LVec{N1,T1}, x) : _bitcast_size(LVec{N1,T1}, LVec{N2,T2})
+    (_bitcast_check(LVec{N1,T1}, LVec{N2,T2}); _bitcast(LVec{N1,T1}, x))
 @lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::T2) where {N, T1, T2 <: Union{FT, IT, Int128, UInt128}} =
-    _bytes(LVec{N,T1}) == sizeof(T2) ? _bitcast(LVec{N,T1}, (VecElement(x),)) : _bitcast_size(LVec{N,T1}, T2)
+    (_bitcast_check(LVec{N,T1}, T2); _bitcast(LVec{N,T1}, (VecElement(x),)))
 @lane @inline SI.bitcast(::Type{T1}, x::LVec{N,T2}) where {N, T1 <: Union{FT, IT, Int128, UInt128}, T2} =
-    sizeof(T1) == _bytes(LVec{N,T2}) ? _bitcast(LVec{1,T1}, x)[1].value : _bitcast_size(T1, LVec{N,T2})
+    (_bitcast_check(T1, LVec{N,T2}); _bitcast(LVec{1,T1}, x)[1].value)
 
 ## Horizontal reductions (left to right; see the module's documentation)
 @inline _red(f, x::LVec{N}) where {N} = (s = x[1].value; for i in 2:N; s = f(s, x[i].value); end; s)

@@ -67,11 +67,16 @@ function main()
     b = reinterpret(Vec{2,Bool}, UInt16(a[1]) + 0x0301)
     out("bitcast to Bool = $(b[1] ? 10 : 20) $(b[2] ? 10 : 20) $(sum(b)) $(reinterpret(Bool, Vec{1,UInt8}((UInt8(a[1]) + 0x01,))) ? 10 : 20)\n")
     r3 = try
+        string(reinterpret(Vec{4,UInt}, Vec{3,Ptr{UInt8}}((pointer(a), pointer(a, 2), pointer(a, 3))))[1])
+    catch err
+        err isa KeyError ? "KeyError" : "another error"
+    end
+    r4 = try
         string(reinterpret(Vec{2,UInt}, Vec{2,Ptr{UInt8}}((pointer(a), pointer(a, 2))))[1])
     catch err
         err isa KeyError ? "KeyError" : "another error"
     end
-    out("bitcast of pointers = $r3\n")
+    out("bitcast of pointers = $r3 $r4\n")
     r2 = try
         string(shufflevector(f, Val((1.0, 0.0)))[1])
     catch err

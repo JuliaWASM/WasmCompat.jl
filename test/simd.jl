@@ -175,10 +175,15 @@ import SIMD
         # a lane type SIMD.jl has no LLVM type for, a pointer: its KeyError
         p = lv(Ptr{UInt8}[1, 2])
         for (T, v) in ((sizeof(Int) == 8 ? UInt128 : UInt64, p), (SIMD.LVec{2,UInt}, p), (SIMD.LVec{2 * sizeof(Int),UInt8}, p),
-                       (SIMD.LVec{2,Ptr{UInt8}}, lv(UInt[1, 2])), (SIMD.LVec{2,Ptr{UInt8}}, p))
+                       (SIMD.LVec{2,Ptr{UInt8}}, lv(UInt[1, 2])), (SIMD.LVec{2,Ptr{UInt8}}, p),
+                       # (before the bits are compared: 3 lanes and 4 of one padded size)
+                       (SIMD.LVec{4,UInt}, lv(Ptr{UInt8}[1, 2, 3])), (SIMD.LVec{3,Ptr{UInt8}}, lv(UInt[1, 2, 3, 4])))
             @test_throws KeyError(Ptr{UInt8}) SI.bitcast(T, v)
             @test_throws KeyError(Ptr{UInt8}) L(:bitcast)(T, v)
         end
+        # (and after the sizes)
+        @test_throws ArgumentError SI.bitcast(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
         m = lv(Bool[1, 0, 1, 1])
         @test same(L(:bitmask)(m), SI.bitmask(m))
         @test same(L(:bitmask)(ntuple(k -> VecElement(isodd(k)), 128)), SI.bitmask(ntuple(k -> VecElement(isodd(k)), 128)))
