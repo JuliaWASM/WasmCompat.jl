@@ -257,10 +257,18 @@ end
 @lane @inline SI.trunc(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> a % T2, x)
 @lane @inline SI.zext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> unsigned(a) % T2, x)
 @lane @inline SI.sext(::Type{LVec{N,T2}}, x::LVec{N,T1}) where {N, T1 <: IT, T2 <: IT} = _m1(a -> signed(a) % T2, x)
+# (a `Bool` is the lowest bit of its byte, the one Julia reads of the native byte: the other bits, which the native byte
+# keeps, are not in a `Bool` here. The lane types are those SIMD.jl has an LLVM type for: another, a pointer, is its
+# `KeyError`, of the source first)
+@inline _cast(::Type{T1}, a) where {T1} = reinterpret(T1, a)
+@inline _cast(::Type{Bool}, a) = isodd(a % UInt8)
+@inline _llvm_type(::Type{T}) where {T <: Union{FT, IT, Int128, UInt128}} = nothing
+@noinline _llvm_type(::Type{T}) where {T} = throw(KeyError(T))
+@inline _llvm_types(::Type{T1}, ::Type{T2}) where {T1, T2} = (_llvm_type(T2); _llvm_type(T1))
 @lane @inline SI.bitcast(::Type{LVec{N,T1}}, x::LVec{N,T2}) where {N, T1, T2} =
-    sizeof(T1) == sizeof(T2) ? _m1(a -> reinterpret(T1, a), x) : _bitcast_size(LVec{N,T1}, LVec{N,T2})
+    sizeof(T1) == sizeof(T2) ? (_llvm_types(T1, T2); _m1(a -> _cast(T1, a), x)) : _bitcast_size(LVec{N,T1}, LVec{N,T2})
 @lane @inline SI.bitcast(::Type{T1}, x::T2) where {T1 <: Union{FT, IT}, T2 <: Union{FT, IT}} =
-    sizeof(T1) == sizeof(T2) ? reinterpret(T1, x) : _bitcast_size(T1, T2)
+    sizeof(T1) == sizeof(T2) ? _cast(T1, x) : _bitcast_size(T1, T2)
 # (SIMD.jl compares the sizes of the Julia types, a vector's with its padding: where those are equal and the bits are
 # not, as for 3 lanes of UInt8 and a UInt32, the native error is LLVM's, for its invalid bitcast)
 @noinline function _bitcast_size(T1, T2)
@@ -280,11 +288,12 @@ _sint(::Type{T}) where {T} = signed(_uint(T))
     for b in 0:sizeof(T1)-1
         u |= U(_byte(x, k * sizeof(T1) + b)) << (8 * b)
     end
-    return reinterpret(T1, u)
+    return _cast(T1, u)
 end
 @inline _bytes(::Type{LVec{N,T}}) where {N, T} = N * sizeof(T)
 @inline _bytes(::Type{T}) where {T} = sizeof(T)
 @inline function _bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2}
+    _llvm_types(T1, T2)
     return ntuple(k -> VecElement(_from_bytes(T1, x, k - 1)), Val(N1))
 end
 @lane @inline SI.bitcast(::Type{LVec{N1,T1}}, x::LVec{N2,T2}) where {N1, T1, N2, T2} =

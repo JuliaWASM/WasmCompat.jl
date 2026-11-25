@@ -63,6 +63,15 @@ function main()
         err isa ArgumentError ? err.msg::String : "another error"
     end
     out("bitcast of another size = $r1\n")
+    # a Bool lane is the lowest bit of its byte, and a bitcast of pointer lanes is SIMD.jl's KeyError
+    b = reinterpret(Vec{2,Bool}, UInt16(a[1]) + 0x0301)
+    out("bitcast to Bool = $(b[1] ? 10 : 20) $(b[2] ? 10 : 20) $(sum(b)) $(reinterpret(Bool, Vec{1,UInt8}((UInt8(a[1]) + 0x01,))) ? 10 : 20)\n")
+    r3 = try
+        string(reinterpret(Vec{2,UInt}, Vec{2,Ptr{UInt8}}((pointer(a), pointer(a, 2))))[1])
+    catch err
+        err isa KeyError ? "KeyError" : "another error"
+    end
+    out("bitcast of pointers = $r3\n")
     r2 = try
         string(shufflevector(f, Val((1.0, 0.0)))[1])
     catch err

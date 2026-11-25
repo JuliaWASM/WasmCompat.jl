@@ -172,6 +172,13 @@ import SIMD
         @test_throws ErrorException SI.bitcast(UInt32, lv([0x01, 0x02, 0x03]))
         @test_throws "(24 bits) to UInt32 (32 bits)" L(:bitcast)(UInt32, lv([0x01, 0x02, 0x03]))
         @test_throws ErrorException L(:bitcast)(SIMD.LVec{3,UInt8}, 0x01020304)
+        # a lane type SIMD.jl has no LLVM type for, a pointer: its KeyError
+        p = lv(Ptr{UInt8}[1, 2])
+        for (T, v) in ((sizeof(Int) == 8 ? UInt128 : UInt64, p), (SIMD.LVec{2,UInt}, p), (SIMD.LVec{2 * sizeof(Int),UInt8}, p),
+                       (SIMD.LVec{2,Ptr{UInt8}}, lv(UInt[1, 2])), (SIMD.LVec{2,Ptr{UInt8}}, p))
+            @test_throws KeyError(Ptr{UInt8}) SI.bitcast(T, v)
+            @test_throws KeyError(Ptr{UInt8}) L(:bitcast)(T, v)
+        end
         m = lv(Bool[1, 0, 1, 1])
         @test same(L(:bitmask)(m), SI.bitmask(m))
         @test same(L(:bitmask)(ntuple(k -> VecElement(isodd(k)), 128)), SI.bitmask(ntuple(k -> VecElement(isodd(k)), 128)))
