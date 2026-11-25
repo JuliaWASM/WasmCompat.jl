@@ -32,6 +32,8 @@ const GENERATED = joinpath(@__DIR__, "TarExt", "specialized_$(pkgversion(Tar))_j
 if isfile(GENERATED)
     include(GENERATED)
 else
+    # (the directory's list of files is a dependency of the code cache, so that a file generated later is included)
+    include_dependency(dirname(GENERATED); track_content = true)
     @warn "WasmCompat: no callback overlays for Tar $(pkgversion(Tar)) of Julia $(VERSION.major).$(VERSION.minor) (generate them with gen/specialize_callbacks.jl)"
 end
 

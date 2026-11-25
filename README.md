@@ -46,7 +46,8 @@ one file per library version and Julia minor version (`ext/TarExt/specialized_<v
 Julia 1.12 and 1.13 both have Tar 1.10.0, with different sources). It checks that the printed code
 parses back to the same definitions, and `test/runtests.jl` that the committed files are what it
 generates. For a Tar or ArgTools without a generated file, the extension warns and adds no generated
-overlay.
+overlay; the directory of generated files is a dependency of its code cache, so a file generated
+afterwards is included at the next load.
 
 ### Interface for programs
 

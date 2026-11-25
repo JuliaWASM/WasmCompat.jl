@@ -253,5 +253,54 @@ end
                 end
             end
         end
+        # an extension that finds no file for this Julia warns and adds no generated overlay; once the file is
+        # generated it must include it, not load its code cache of before: a copy of the package without the files,
+        # loaded before and after the generator ran in it (the copy's code caches in a depot of its own)
+        mktempdir() do dir
+            pkg = joinpath(dir, "WasmCompat"); mkdir(pkg)
+            for f in ("Project.toml", "src", "ext", "gen")
+                cp(joinpath(dirname(@__DIR__), f), joinpath(pkg, f))
+            end
+            for sub in ("TarExt", "ArgToolsExt"), f in readdir(joinpath(pkg, "ext", sub); join = true)
+                rm(f)
+            end
+            julia = addenv(`$(Base.julia_cmd()) --startup-file=no`,
+                "JULIA_LOAD_PATH" => join((pkg, Base.active_project(), "@stdlib"), Sys.iswindows() ? ';' : ':'),
+                "JULIA_DEPOT_PATH" => join((joinpath(dir, "depot"), DEPOT_PATH...), Sys.iswindows() ? ';' : ':'))
+            script = """
+                using WasmCompat, WasmCodegen, Tar, ArgTools
+                pkgdir(WasmCompat) == ARGS[1] || error("WasmCompat is not the copy")
+                for e in (:WasmCompatTarExt, :WasmCompatArgToolsExt)
+                    n = Ref(0)
+                    Base.visit(m -> n[] += m.module === Base.get_extension(WasmCompat, e), WasmCodegen.Runtime.WASM_METHODS)
+                    println(n[])
+                end
+                """
+            counts() = parse.(Int, readlines(pipeline(`$julia -e $script $pkg`; stderr = devnull)))
+            @test counts() == [count(m -> !occursin("specialized_", string(m.file)), overlays(TarExt)), 0]
+            run(pipeline(`$julia $(joinpath(pkg, "gen", "specialize_callbacks.jl"))`; stdout = devnull))
+            @test counts() == [length(overlays(TarExt)), length(overlays(ArgToolsExt))]
+        end
+    end
+
+    # (check.sh with a stand-in for the runtime, and the module and native output "of an earlier run")
+    Sys.isunix() && @testset "check.sh: a diff it could not write is not a comparison" begin
+        mktempdir() do dir
+            wasm = joinpath(dirname(@__DIR__), "test", "wasm"); o = joinpath(dir, "toml"); mkdir(o)
+            write(joinpath(o, "toml.wasm"), ""); write(joinpath(o, "native.txt"), "native\n")
+            node = joinpath(dir, "node"); write(node, "#!/bin/sh\necho wasm\n"); chmod(node, 0o755)
+            check = addenv(`bash $(joinpath(wasm, "check.sh")) toml`, "OUT" => dir, "NO_BUILD" => "1", "NODE" => node,
+                "WASM_RUNTIME" => "node")
+            status() = (p = run(pipeline(ignorestatus(check); stdout = devnull, stderr = devnull)); p.exitcode)
+            @test status() == 1   # different, and not by expected/toml.diff
+            # the diff file of an earlier run, which had the expected difference, and is not writable now
+            d = joinpath(o, "wasm.txt.diff"); cp(joinpath(wasm, "expected", "toml.diff"), d; force = true); chmod(d, 0o444)
+            if iszero(ccall(:geteuid, Cuint, ()))
+                @test_skip status() == 2   # (root writes it)
+            else
+                @test status() == 2
+            end
+            chmod(d, 0o644)
+        end
     end
 end
