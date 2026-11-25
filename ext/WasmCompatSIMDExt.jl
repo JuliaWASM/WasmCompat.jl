@@ -262,15 +262,16 @@ end
 @inline _cast(::Type{T1}, a) where {T1} = reinterpret(T1, a)
 @inline _cast(::Type{Bool}, a) = isodd(a % UInt8)
 # The checks of SIMD.jl's one `bitcast`, in its order: the sizes of the Julia types, a vector's with its padding
-# (ArgumentError); the lane types, of the source first, which are those it has an LLVM type for (another, a pointer,
-# is its KeyError); and the bits, where the native error is LLVM's, for its invalid bitcast (as for 3 lanes of UInt8
+# (ArgumentError); the lane types, of the source first, which are those it has an LLVM type for (another, a pointer
+# or a vector, is its KeyError); and the bits, where the native error is LLVM's, for its invalid bitcast (as for 3 lanes of UInt8
 # and a UInt32, of one padded size)
-@inline _llvm_type(::Type{LVec{N,T}}) where {N, T} = _llvm_type(T)
+@inline _lane_type(::Type{LVec{N,T}}) where {N, T} = T
+@inline _lane_type(::Type{T}) where {T} = T
 @inline _llvm_type(::Type{T}) where {T <: Union{FT, IT, Int128, UInt128}} = nothing
 @noinline _llvm_type(::Type{T}) where {T} = throw(KeyError(T))
 @inline function _bitcast_check(::Type{T1}, ::Type{T2}) where {T1, T2}
     sizeof(T1) == sizeof(T2) || _bitcast_size(T1, T2)
-    _llvm_type(T2); _llvm_type(T1)
+    _llvm_type(_lane_type(T2)); _llvm_type(_lane_type(T1))
     _bytes(T1) == _bytes(T2) || _bitcast_size(T1, T2)
     return nothing
 end

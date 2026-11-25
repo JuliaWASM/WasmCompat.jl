@@ -181,6 +181,9 @@ import SIMD
             @test_throws KeyError(Ptr{UInt8}) SI.bitcast(T, v)
             @test_throws KeyError(Ptr{UInt8}) L(:bitcast)(T, v)
         end
+        # (the lane type of a vector of vectors is a vector, not one of those either)
+        @test_throws KeyError(SIMD.LVec{2,UInt8}) SI.bitcast(SIMD.LVec{1,SIMD.LVec{2,UInt8}}, lv([0x01, 0x02]))
+        @test_throws KeyError(SIMD.LVec{2,UInt8}) L(:bitcast)(SIMD.LVec{1,SIMD.LVec{2,UInt8}}, lv([0x01, 0x02]))
         # (and after the sizes)
         @test_throws ArgumentError SI.bitcast(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
         @test_throws ArgumentError L(:bitcast)(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
