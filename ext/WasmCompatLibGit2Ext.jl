@@ -31,8 +31,9 @@ libgit2 calls no Julia callback here: `credentials_cb()`, `certificate_cb()` and
 `RemoteCallbacks(::Callbacks)` drops the callbacks, and the credential payload has nothing to approve or
 reject. What a caller asks for and the module is not given is an `ArgumentError`, not a silent drop: a
 certificate check that is not null (a `:certificate_check` callback, or one in a `FetchOptions`),
-`FetchOptions(proxy_opts)` and `FetchOptions(custom_headers)`, and a clone's `CheckoutOptions` with more
-than a strategy. Remotes are public https (TLS is the host's) and local paths; a remote that asks for
+`FetchOptions(proxy_opts)` with a proxy and `FetchOptions(custom_headers)`. Dropped silently: the callbacks, and
+of a clone's `CheckoutOptions` all but the strategy (libgit2 runs no checkout for a bare clone, `CHECKOUT_NONE`
+or an unborn HEAD, which cannot be known before the clone). Remotes are public https (TLS is the host's) and local paths; a remote that asks for
 credentials is libgit2's `EAUTH` error ("remote authentication required but no callback set"), and
 transfer progress is not reported. `LibGit2.initialize()` is `git_libgit2_init` only (no certificate
 locations, no `atexit`), and `rawcontent(::GitBlob)` copies the bytes out of the module.
@@ -602,22 +603,6 @@ end
 not_supported(what::String) = throw(ArgumentError("WasmCompat: $what is not supported in Wasm"))
 
 """
-Throws for a `CheckoutOptions` of a clone that checks out (a bare one does not) with more than a strategy, all
-that the module's clone is given: but for what libgit2 does nothing with there, a notify callback without flags
-(or flags without a callback) and the labels of a merge's conflicts.
-"""
-function check_clone_checkout(c::CheckoutOptions)
-    c.paths.count == 0 || not_supported("CheckoutOptions(paths)")
-    convert(Ptr{UInt8}, c.target_directory) == C_NULL || not_supported("CloneOptions(checkout_opts) with a target_directory")
-    (c.version == 1 && c.progress_cb == C_NULL && c.perfdata_cb == C_NULL &&
-     c.baseline == C_NULL && c.baseline_index == C_NULL &&
-     c.disable_filters == 0 && c.dir_mode == 0 && c.file_mode == 0 && c.file_open_flags == 0 &&
-     (c.notify_cb == C_NULL || c.notify_flags == Consts.CHECKOUT_NOTIFY_NONE)) ||
-        not_supported("CloneOptions(checkout_opts) with more than a checkout_strategy")
-    return nothing
-end
-
-"""
 Throws for a `FetchOptions` with a certificate check, a proxy or custom headers (the module's fetch and clone
 are given none). `certificate_cb()` is null here, so a certificate check that is not is the caller's. No proxy
 (`PROXY_NONE`) is what the module does, also for `PROXY_AUTO`, `LibGit2`'s default: it detects none.
@@ -748,7 +733,6 @@ Base.Experimental.@overlay OV function LibGit2.clone(repo_url::AbstractString, r
                                                      clone_opts::CloneOptions)
     LibGit2.ensure_initialized()
     try
-        clone_opts.bare == 0 && check_clone_checkout(clone_opts.checkout_opts)
         check_fetch_options(clone_opts.fetch_opts)
         o = slot()
         f = clone_opts.fetch_opts

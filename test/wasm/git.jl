@@ -222,12 +222,17 @@ function callback_ops(io::IO, W::String)
                          callbacks = LibGit2.Callbacks(:certificate_check => (C_NULL, nothing)))
     ln(io, "clone with a null certificate_check", LibGit2.head_oid(repo))
     close(repo)
-    # options that ask for nothing the module does not do: no proxy, and those of a checkout a bare clone does not run
+    # options that ask for nothing the module does not do: no proxy, and those of a checkout a clone does not run
+    # (a bare one, or with CHECKOUT_NONE)
     fetch_opts = LibGit2.FetchOptions(callbacks = LibGit2.RemoteCallbacks(certificate_check = C_NULL),
         proxy_opts = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_NONE, certificate_cb = C_NULL))
     repo = LibGit2.clone(up, joinpath(W, "clones", "no-proxy"),
                          LibGit2.CloneOptions(bare = 1, fetch_opts = fetch_opts, checkout_opts = LibGit2.CheckoutOptions(dir_mode = 0o700)))
     ln(io, "bare clone with no proxy and a dir_mode", LibGit2.isbare(repo), LibGit2.head_oid(repo))
+    close(repo)
+    none = LibGit2.CheckoutOptions(checkout_strategy = LibGit2.Consts.CHECKOUT_NONE, dir_mode = 0o700)
+    repo = LibGit2.clone(up, joinpath(W, "clones", "no-checkout"), LibGit2.CloneOptions(fetch_opts = fetch_opts, checkout_opts = none))
+    ln(io, "clone with CHECKOUT_NONE and a dir_mode", LibGit2.head_oid(repo), join(readdir(joinpath(W, "clones", "no-checkout")), ","))
     close(repo)
     p = LibGit2.CredentialPayload(allow_git_helpers = false)
     p.credential = LibGit2.UserPasswordCredential("user", "password")

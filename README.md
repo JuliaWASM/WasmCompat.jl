@@ -145,8 +145,8 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   a remote that asks for credentials is libgit2's `EAUTH` error ("remote authentication required but no callback
   set"); transfer progress is not reported (Pkg's progress bar stays empty). What a caller asks for and cannot
   have is an `ArgumentError`: a certificate check that is not null (a `:certificate_check` callback, or one in a
-  `FetchOptions`), `FetchOptions(proxy_opts)` with a proxy (not `PROXY_NONE` or the default) or `(custom_headers)`,
-  a clone's `CheckoutOptions` with more than a strategy, where the clone checks out (not a bare one).
+  `FetchOptions`), `FetchOptions(proxy_opts)` with a proxy (not `PROXY_NONE` or the default) or `(custom_headers)`.
+  Dropped silently: of a clone's `CheckoutOptions`, all but the strategy.
 - **WASI preview 1:** no permission bits, so the module sets `core.filemode = false` for each repository it opens
   (a work tree is not dirty by mode), and the files git records as executable are made executable after a
   checkout (not a dry run) through the program's `chmod` (WasmCodegen's `julia_io` host extension; without it
