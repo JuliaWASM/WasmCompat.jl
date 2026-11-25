@@ -18,7 +18,7 @@ end
 # (the program is compiled with the ARGS of a program run with no arguments, which is how run.mjs and check.sh's
 # native run start it: a compiled module has the ARGS of its build. The two paths are locals: a program may define
 # a global of any name, and may change ARGS. `Prog` is of a world later than this block's, hence the `eval`.)
-let prog = abspath(ARGS[1]), out = abspath(ARGS[2])
+let prog = abspath(ARGS[1]), out = ARGS[2]
     empty!(ARGS)
     include(prog)
     trim = Symbol(get(ENV, "TRIM", "safe")); verify = Symbol(get(ENV, "VERIFY", "warn"))
@@ -26,11 +26,11 @@ let prog = abspath(ARGS[1]), out = abspath(ARGS[2])
     cfg = WasmCodegen.Config(; host = :wasi, host_extensions = exts, trim, verify, on_unsupported = trim === :safe ? :error : :trap)
     if pcre2
         cfg = WasmCompat.pcre2_config(cfg)
-        cp(WasmCompat.pcre2_module(), joinpath(dirname(out), "libpcre2-8.wasm"); force = true)
+        cp(WasmCompat.pcre2_module(), joinpath(dirname(abspath(out)), "libpcre2-8.wasm"); force = true)
     end
     if libgit2
         cfg = WasmCompat.libgit2_config(cfg)
-        cp(WasmCompat.libgit2_module(), joinpath(dirname(out), "libgit2.wasm"); force = true)
+        cp(WasmCompat.libgit2_module(), joinpath(dirname(abspath(out)), "libgit2.wasm"); force = true)
     end
     # (tests run on optimized modules only: wasm-opt -O3, WasmCodegen's default)
     cfg.optimize === nothing && error("build.jl: Config(optimize = nothing): the checks run on modules optimized by wasm-opt only")
