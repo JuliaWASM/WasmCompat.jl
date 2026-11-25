@@ -15,17 +15,21 @@ if compat
         println("extension ", e, ": ", Base.get_extension(WasmCompat, e) !== nothing)
     end
 end
-include(abspath(ARGS[1]))
+# (the program is compiled with the ARGS of a program run with no arguments, which is how run.mjs and check.sh's
+# native run start it: a compiled module has the ARGS of its build)
+prog, wasm = abspath(ARGS[1]), abspath(ARGS[2])
+empty!(ARGS)
+include(prog)
 trim = Symbol(get(ENV, "TRIM", "safe")); verify = Symbol(get(ENV, "VERIFY", "warn"))
 exts = Symbol[Symbol(x) for x in split(get(ENV, "EXT", ""), ',') if !isempty(x)]
 cfg = WasmCodegen.Config(; host = :wasi, host_extensions = exts, trim, verify, on_unsupported = trim === :safe ? :error : :trap)
 if pcre2
     cfg = WasmCompat.pcre2_config(cfg)
-    cp(WasmCompat.pcre2_module(), joinpath(dirname(abspath(ARGS[2])), "libpcre2-8.wasm"); force = true)
+    cp(WasmCompat.pcre2_module(), joinpath(dirname(wasm), "libpcre2-8.wasm"); force = true)
 end
 if libgit2
     cfg = WasmCompat.libgit2_config(cfg)
-    cp(WasmCompat.libgit2_module(), joinpath(dirname(abspath(ARGS[2])), "libgit2.wasm"); force = true)
+    cp(WasmCompat.libgit2_module(), joinpath(dirname(wasm), "libgit2.wasm"); force = true)
 end
 # (tests run on optimized modules only: wasm-opt -O3, WasmCodegen's default)
 cfg.optimize === nothing && error("build.jl: Config(optimize = nothing): the checks run on modules optimized by wasm-opt only")
@@ -43,5 +47,5 @@ for (mi, u) in c.cgm.diagnostics
 end
 rep = isassigned(c.world.trim_report) ? c.world.trim_report[] : ""
 println("verifier: ", isempty(rep) ? "clean" : string(count("\nError", "\n" * rep) + count("\nWarning", "\n" * rep), " entries"))
-isempty(rep) || write(ARGS[2] * ".verifier.txt", rep)
-write(ARGS[2], c.bytes)
+isempty(rep) || write(wasm * ".verifier.txt", rep)
+write(wasm, c.bytes)

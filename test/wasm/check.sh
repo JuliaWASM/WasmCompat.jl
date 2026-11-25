@@ -8,7 +8,8 @@
 # Exit status: 0 if every run is identical to the native one, or differs from it only by `expected/NAME.diff`, or is
 # skipped because the engine lacks a feature the module needs (run.mjs exits 77 and names it; never silently;
 # WASM_ALLOW_SKIP=0 makes a skip a failure, as in CI unless the gap is documented there). A native run that fails,
-# a runtime that exits with another status, or a missing module or native output (NO_BUILD=1) is a failure.
+# a runtime that exits with another status, a missing module or native output (NO_BUILD=1), or a diff file that
+# cannot be written is a failure. Both runs are of the program with no arguments (an empty ARGS).
 set -u
 D=$(cd "$(dirname "$0")" && pwd); n=$1; export EXT=${2:-}
 O=${OUT:-$D/out}/$n; W=$O/work; H=$O/home; mkdir -p "$O"
@@ -19,7 +20,7 @@ if [ "${NO_BUILD:-0}" != 1 ]; then
   $JULIA --startup-file=no "$D/build.jl" "$D/$n.jl" "$O/$n.wasm" > "$O/build.log" 2>&1 || { tail -20 "$O/build.log"; exit 1; }
   rm -rf "$W"; mkdir -p "$W"
   [ "${LIBGIT2:-0}" = 1 ] && rm -rf "$H" && mkdir -p "$H"
-  WORK=$W $JULIA --startup-file=no -e 'include(ARGS[1]); rc = Prog.main(); print("\n[main returned $rc]\n")' "$D/$n.jl" > "$O/native.txt" 2>&1 ||
+  WORK=$W $JULIA --startup-file=no -e 'include(popfirst!(ARGS)); rc = Prog.main(); print("\n[main returned $rc]\n")' "$D/$n.jl" > "$O/native.txt" 2>&1 ||
     { tail -20 "$O/native.txt"; echo "$n: the native run failed (see above)"; exit 1; }
 fi
 # (NO_BUILD=1 with nothing built: an error, not a diff with a missing file)
@@ -35,6 +36,8 @@ for rt in ${WASM_RUNTIME-node}; do   # (WASM_RUNTIME= : build only)
   [ "${LIBGIT2:-0}" = 1 ] && rm -rf "$H" && mkdir -p "$H"
   "${js[@]}" "$D/run.mjs" "$O/$n.wasm" "$W" "WORK=$W" ${WASM_ENV:-} > "$out" 2>&1
   rc=$?
+  # (a diff file that cannot be written is an error: the redirection's failure is status 1, as a difference is)
+  : > "$out.diff" || { echo "check.sh: cannot write $out.diff"; exit 2; }
   diff "$O/native.txt" "$out" > "$out.diff"
   d=$?   # (0: identical, 1: different, 2: diff itself failed)
   if [ $rc = 77 ]; then echo "$n ($rt): SKIPPED, an engine gap: $(sed -n 's/^SKIP: //p' "$out" | head -1)"

@@ -51,6 +51,8 @@ function main()
         err isa ErrorException ? "ErrorException" : "other error"
     end
     out(string("no mapping: ", r, "\n"))
+    # (check.sh: both runs are of a program with no arguments)
+    out(string("ARGS: ", length(ARGS), "\n"))
     return 0
 end
 end
