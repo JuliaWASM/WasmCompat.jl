@@ -124,6 +124,8 @@ end
         for T in (Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128)
             @test typed(Dict("x" => typemax(T))) == stock(Dict("x" => typemax(T)))
             @test typed(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)])) == stock(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)]))
+            @test typed(Dict("v" => T[1, typemax(T)])) == stock(Dict("v" => T[1, typemax(T)]))
+            @test typed(Dict{String, Any}("v" => T[typemin(T)])) == stock(Dict{String, Any}("v" => T[typemin(T)]))
         end
         # errors as Base's: no conversion function, a conversion to a non-TOML value
         @test_throws ErrorException typed(Dict{String, Any}("u" => UUID(0)))

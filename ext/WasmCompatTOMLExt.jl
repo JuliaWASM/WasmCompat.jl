@@ -48,7 +48,8 @@ const TABLE_TYPES = (Dict{String, Any}, Dict{String, String}, Dict{String, Vecto
 const ARRAY_TYPES = (Vector{Any}, Vector{String}, Vector{Int64}, Vector{Float64}, Vector{Bool},
     Vector{Dict{String, Any}}, Vector{Dict{String, String}}, Vector{Vector{Any}},
     Vector{Dates.DateTime}, Vector{Dates.Date}, Vector{Dates.Time}, Vector{Dict{String, Dates.DateTime}},
-    Vector{Base.UUID}, Vector{UInt64})
+    Vector{Base.UUID}, Vector{UInt64}, Vector{Int128}, Vector{UInt128}, Vector{Int32}, Vector{UInt32},
+    Vector{UInt8}, Vector{Int8}, Vector{Int16}, Vector{UInt16})
 # values that are not TOML values but are converted by the conversion function
 const CONVERTED_TYPES = (Base.UUID, Base.SHA1, VersionNumber, Nothing, Symbol)
 

@@ -64,6 +64,10 @@ function main()
     h["small"] = Int16(-3); h["byte"] = Int8(7); h["u16"] = 0xffff
     TOML.print(io, h; sorted = true)
     TOML.print(io, Dict("x" => Int16(1)))
+    TOML.print(io, Dict("i16" => Int16[1, -2]))
+    h["bytes"] = [0x01, 0xff]; h["i8"] = Int8[-1]; h["u16s"] = [0xffff]; h["i32"] = Int32[3]; h["u32"] = [0x00000004]
+    h["i128"] = [typemin(Int128)]; h["u128"] = [typemax(UInt128)]
+    TOML.print(io, h; sorted = true)
     out(String(take!(io)))
     out("---- long integer (a documented divergence: BigInt natively, an overflow error in Wasm)\n")
     r = TOML.tryparse("big = 123456789012345678901234567890123456789")
