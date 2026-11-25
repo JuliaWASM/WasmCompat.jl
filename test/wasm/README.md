@@ -11,8 +11,9 @@ same program run natively.
     ... WASM_RUNTIME="node bun" BUN=bun PCRE2=1 ./check.sh regex   # each runtime's run diffed with the native one
     ... NO_BUILD=1 WASM_RUNTIME=bun PCRE2=1 ./check.sh regex       # the module and native output of the previous run, in Bun
 
-`PCRE2=1` needs PCRE2_wasm_jll in the project (with its standalone module, 10.46.0+1 or later) and WasmCodegen
-with `Config(foreign_functions)` and `Config(import_libraries)`.
+`PCRE2=1` needs the PCRE2_wasm_jll of the compiling Julia's PCRE2 in the project, with its standalone module
+(10.47.0+1 for Julia 1.13.3 and later: `test/Project.toml`'s `standalone-module-10.47`; 10.46.0+1 for 1.13.2), and
+WasmCodegen with `Config(foreign_functions)` and `Config(import_libraries)`.
 
 Expected differences: `toml.jl`'s last line (a long integer literal parses as a `BigInt` natively, an overflow error
 in Wasm; see the README's *Differences*); `regex.jl`'s `(?R)` line ("nested recursion at the same subject position"
