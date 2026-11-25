@@ -215,20 +215,13 @@ end
 
 isexec(f::String) = filemode(f) & 0o100 != 0
 
-# callbacks that are null or misnamed, as natively; a credential that was not used
+# a callback that is null, as natively; a credential that was not used
 function callback_ops(io::IO, W::String)
     up = joinpath(W, "up")
     repo = LibGit2.clone(up, joinpath(W, "clones", "null-certificate"); isbare = true,
                          callbacks = LibGit2.Callbacks(:certificate_check => (C_NULL, nothing)))
     ln(io, "clone with a null certificate_check", LibGit2.head_oid(repo))
     close(repo)
-    try
-        LibGit2.clone(up, joinpath(W, "clones", "misnamed"); isbare = true,
-                      callbacks = LibGit2.Callbacks(:certficate_check => (C_NULL, nothing)))
-        ln(io, "a callback that is not one", "accepted")
-    catch e
-        err(io, "a callback that is not one", e)
-    end
     p = LibGit2.CredentialPayload(allow_git_helpers = false)
     p.credential = LibGit2.UserPasswordCredential("user", "password")
     LibGit2.approve(p; shred = false)
@@ -308,6 +301,8 @@ function mode_ops(io::IO, W::String)
     # the place of an entry's directory stays
     rm(exe)
     ln(io, "safe checkout", checkout_into(repo, t, out, LibGit2.Consts.CHECKOUT_SAFE), "run.sh recreated", isfile(exe))
+    symlink("run.sh", exe)
+    ln(io, "safe checkout over a link to itself", checkout_into(repo, t, out, LibGit2.Consts.CHECKOUT_SAFE), islink(exe))
     t2 = LibGit2.GitTree(repo, SUB_TREE)
     c2 = LibGit2.commit(repo, "sub\n"; author = SIG, committer = SIG, tree_id = LibGit2.GitHash(t2), parent_ids = [c])
     LibGit2.reset!(repo, c2, LibGit2.Consts.RESET_HARD)
@@ -319,6 +314,13 @@ function mode_ops(io::IO, W::String)
         ln(io, "safe checkout over a file in a directory's place", Int(LibGit2.checkout_tree(repo, t2)), read(joinpath(dir, "sub"), String))
     catch e
         err(io, "safe checkout over a file in a directory's place", e)
+    end
+    rm(joinpath(dir, "sub"))
+    symlink("sub", joinpath(dir, "sub"))
+    try
+        ln(io, "safe checkout over a directory that is a link to itself", Int(LibGit2.checkout_tree(repo, t2)), islink(joinpath(dir, "sub")))
+    catch e
+        err(io, "safe checkout over a directory that is a link to itself", e)
     end
     close(t2)
     close(t); close(repo)

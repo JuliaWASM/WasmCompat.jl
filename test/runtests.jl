@@ -233,9 +233,9 @@ end
         @test length(c.foreign_functions) == length(fs) && c.import_libraries == ["other", "libgit2"]
         @test_throws ArgumentError WasmCompat.libgit2_config(WasmCodegen.Config(host = :js))
         # a string with a NUL is not a `Cstring`, in the overlays either (the error is Base's, before any call)
-        e = try LibGit2Ext.cstring("check\0out") catch e; e end
-        e0 = try Base.unsafe_convert(Cstring, "check\0out") catch e; e end
-        @test e isa ArgumentError && e.msg == e0.msg
+        e = try LibGit2Ext.cstring("check\0out") catch err; err end
+        e0 = try Base.unsafe_convert(Cstring, "check\0out") catch err; err end
+        @test e isa ArgumentError && e0 isa ArgumentError && e.msg == e0.msg
         # (before anything is allocated for the call: these are not in an overlay's `finally`)
         @test_throws ArgumentError LibGit2Ext.strarray(["a", "a\0b"])
         @test isempty(LibGit2Ext.TEMPS)
@@ -258,6 +258,8 @@ end
         end
         @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(
             fetch_options(proxy_opts = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_NONE, certificate_cb = C_NULL)))
+        @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(
+            fetch_options(proxy_opts = LibGit2.ProxyOptions(version = 2, certificate_cb = C_NULL)))
         @test_throws "FetchOptions(custom_headers)" LibGit2Ext.check_fetch_options(
             fetch_options(custom_headers = LibGit2.StrArrayStruct(Ptr{Cstring}(8), 1)))
         @test LibGit2Ext.check_clone_checkout(LibGit2.CloneOptions().checkout_opts) === nothing
@@ -275,19 +277,20 @@ end
             @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(; field => Ptr{Cvoid}(8)))
         end
         @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(version = 2))
-        # the callbacks are dropped; a certificate check that is not null is an error, a null one is not; and a
-        # name that is not a callback's is the MethodError of `RemoteCallbacks(::Callbacks)`
+        # the callbacks are dropped; a certificate check that is not null is an error, a null one is not
         @test LibGit2Ext.remote_callbacks(LibGit2.Callbacks()) isa LibGit2.RemoteCallbacks
         r = LibGit2Ext.remote_callbacks(LibGit2.Callbacks(:credentials => (Ptr{Cvoid}(16), 1),
                                                          :transfer_progress => (Ptr{Cvoid}(8), 2)))
         @test r.credentials == C_NULL && r.transfer_progress == C_NULL && r.payload === nothing
         @test LibGit2Ext.remote_callbacks(LibGit2.Callbacks(:certificate_check => (C_NULL, nothing))) isa LibGit2.RemoteCallbacks
         @test_throws "certificate_check" LibGit2Ext.remote_callbacks(LibGit2.Callbacks(:certificate_check => (Ptr{Cvoid}(8), nothing)))
-        misnamed = LibGit2.Callbacks(:certficate_check => (Ptr{Cvoid}(8), nothing), :credentials => (C_NULL, nothing))
-        e = try LibGit2Ext.remote_callbacks(misnamed) catch e; e end
-        e0 = try LibGit2.RemoteCallbacks(misnamed) catch e; e end
-        @test e isa MethodError && e0 isa MethodError && e.f === e0.f && e.args[2] === e0.args[2] &&
-              occursin("certficate_check", sprint(showerror, e))
+        # a clone that fails after the repository is open closes it
+        mktempdir() do dir
+            repo = LibGit2.init(dir)
+            @test LibGit2Ext.close_on_error(() -> 1, repo) == 1 && repo.ptr != C_NULL
+            @test_throws "chmod" LibGit2Ext.close_on_error(() -> error("chmod"), repo)
+            @test repo.ptr == C_NULL
+        end
         # no executable bits after a dry run
         @test LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_FORCE | LibGit2.Consts.CHECKOUT_DRY_RUN)
         @test !LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_FORCE) && !LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_SAFE)

@@ -621,7 +621,7 @@ are given none). `certificate_cb()` is null here, so a certificate check that is
 function check_fetch_options(f::FetchOptions)
     p = f.proxy_opts
     f.callbacks.certificate_check == C_NULL && p.certificate_cb == C_NULL || not_supported("a certificate_check callback")
-    (p.proxytype == Consts.PROXY_AUTO && convert(Ptr{UInt8}, p.url) == C_NULL && p.credential_cb == C_NULL) ||
+    (p.version == 1 && p.proxytype == Consts.PROXY_AUTO && convert(Ptr{UInt8}, p.url) == C_NULL && p.credential_cb == C_NULL) ||
         not_supported("FetchOptions(proxy_opts)")
     f.custom_headers.count == 0 || not_supported("FetchOptions(custom_headers)")
     return nothing
@@ -629,11 +629,8 @@ end
 
 # types.jl: libgit2 calls no Julia callback in Wasm (see the module's documentation), so the callbacks a
 # caller passes are not given to it (a certificate check that is not null, which could refuse a connection, is
-# an error; a name that is not a callback's is `RemoteCallbacks`'s MethodError, here with the `Callbacks` for
-# the keyword arguments), and no credential is ever used (nothing to approve or reject)
+# an error), and no credential is ever used (nothing to approve or reject)
 function remote_callbacks(c::LibGit2.Callbacks)
-    all(name -> name in fieldnames(LibGit2.RemoteCallbacks), keys(c)) ||
-        throw(MethodError(Core.kwcall, (c, LibGit2.RemoteCallbacks)))
     get(c, :certificate_check, (C_NULL, nothing))[1] == C_NULL || not_supported("a certificate_check callback")
     return LibGit2.RemoteCallbacks()
 end
@@ -644,13 +641,29 @@ Base.Experimental.@overlay OV LibGit2.reject(p::LibGit2.CredentialPayload; shred
 # WASI preview 1 has no permission bits, so the files the module writes are not executable: the entries git
 # records as executable (100755) of the tree checked out under `root` are made so here, through the
 # program's `chmod` (WasmCodegen: the host's `julia_io` file modes; without them, `chmod` fails with ENOTSUP and
-# nothing changes). Not after a dry run, which writes no file. An entry the checkout left out of the work tree
-# (ENOENT; ENOTDIR where a file is in a directory's place) is skipped; any other failure of `chmod` is the
-# caller's error, as a mode libgit2 cannot set is natively.
+# nothing changes). Not after a dry run, which writes no file. Only an entry that `lstat` finds as a regular file:
+# what the checkout left out of the work tree or left as something else (a link, a file in a directory's place)
+# is skipped; a failure of `chmod` on a regular file is the caller's error, as a mode libgit2 cannot set is natively.
 # (Not libgit2's own modes: this makes every executable entry that is a file executable, also one the checkout
 # did not write, e.g. unchanged under CHECKOUT_SAFE, and whatever `CheckoutOptions(file_mode)`; and `reset!`
 # does so in the work tree, not in a `target_directory`.)
 dry_run(strategy::Cuint) = strategy & Consts.CHECKOUT_DRY_RUN != 0
+# (a path `lstat` fails on, as one through a link to itself, is not known to be a regular file)
+regular_file(f::String) = try
+    isfile(lstat(f))
+catch e
+    e isa Base.IOError || rethrow()
+    false
+end
+"`f()`, closing `repo` if it throws: the caller of a clone that fails has no handle to close."
+function close_on_error(f, repo::LibGit2.GitRepo)
+    try
+        return f()
+    catch
+        close(repo)
+        rethrow()
+    end
+end
 function exec_bits!(repo::Ptr{Cvoid}, spec::String, root::String)
     rc = try
         ccall((:lg2w_ls_tree, "libgit2"), Int32, (UInt32, UInt32), ha(repo), cin(spec))
@@ -664,10 +677,11 @@ function exec_bits!(repo::Ptr{Cvoid}, spec::String, root::String)
         t = findfirst('\t', rec)
         t === nothing && continue
         f = joinpath(root, String(SubString(rec, nextind(rec, t))))
+        regular_file(f) || continue
         try
             chmod(f, 0o755)
         catch e
-            e isa Base.IOError && (e.code == Base.UV_ENOTSUP || e.code == Base.UV_ENOENT || e.code == Base.UV_ENOTDIR) || rethrow()
+            e isa Base.IOError && e.code == Base.UV_ENOTSUP || rethrow()
         end
     end
     return nothing
@@ -742,7 +756,7 @@ Base.Experimental.@overlay OV function LibGit2.clone(repo_url::AbstractString, r
         rc < 0 && throw(Error.GitError(rc))
         repo = LibGit2.GitRepo(hp(load32(o)))
         clone_opts.bare == 0 && !dry_run(clone_opts.checkout_opts.checkout_strategy) &&
-            exec_bits!(repo.ptr, "HEAD^{tree}", String(repo_path))
+            close_on_error(() -> exec_bits!(repo.ptr, "HEAD^{tree}", String(repo_path)), repo)
         return repo
     finally
         release!()
