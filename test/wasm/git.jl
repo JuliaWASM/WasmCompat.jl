@@ -2,8 +2,9 @@
 # operations Pkg performs, through LibGit2's own API, on repositories this program makes in $WORK (fixed signatures,
 # so every hash is the same in both runs): init/add!/commit, open, revparse and objects, trees and blobs, HEAD and
 # branches, configuration, remotes, clone (local and file://), fetch with refspecs, checkout of a tree into a directory
-# (Pkg's checkout_tree_to_path), isdirty, reset!, fast-forward merge!, rebase!, and libgit2's errors. With NET=1, a
-# shallow clone over https and an unshallow fetch, Pkg's way.
+# (Pkg's checkout_tree_to_path), isdirty, reset!, fast-forward merge!, rebase!, and libgit2's errors; strings with a NUL, and the
+# mode of an executable entry after a checkout and after a dry run (the host's modes with `check.sh git julia_io`).
+# With NET=1, a shallow clone over https and an unshallow fetch, Pkg's way.
 module Prog
 
 using LibGit2
@@ -189,6 +190,91 @@ function local_ops(io::IO, W::String)
     end
 end
 
+# a tree with an executable entry (run.sh, 100755) and plain.txt, as loose objects: `add!` records no mode in Wasm
+const MODE_TREE = "8f4572600a1d338b3d283ba4f566903c38cc01e8"
+const MODE_OBJECTS = [
+    MODE_TREE => "78012b294a4d553037643034303033315128c849ccccd32ba92861d8b96781e409abd467d7c52f6cbbd5a618ef7af7e166a02273535385a2d23cbde20c062995565519e3e52c46963e937f771af37d12d97f12007ebd1dde",
+    "1a2485251c33a70432394c93fb89330ef214bfc9" => "78014bcac94f523034605056d44fcaccd32fcee002002f8504e1",
+    "b9bca019c83a65e6d717d0b6da86215f45dde1b3" => "78014bcac94f52306328c849cccce302001de10414"]
+
+function checkout_into(repo::LibGit2.GitRepo, t::LibGit2.GitTree, out::String, strategy::Cuint)
+    GC.@preserve out begin
+        opts = LibGit2.CheckoutOptions(checkout_strategy = strategy, target_directory = Base.unsafe_convert(Cstring, out))
+        return Int(LibGit2.checkout_tree(repo, t, options = opts))
+    end
+end
+
+function mode_ops(io::IO, W::String)
+    # a string with a NUL is not a C string (the url comes first: no host path in the message)
+    try
+        LibGit2.clone("u\0p", joinpath(W, "nul"))
+        ln(io, "NUL in a clone url", "accepted")
+    catch e
+        err(io, "NUL in a clone url", e)
+    end
+    up = LibGit2.GitRepo(joinpath(W, "up"))
+    try
+        LibGit2.add!(up, "a\0b")
+        ln(io, "NUL in add!", "accepted")
+    catch e
+        err(io, "NUL in add!", e)
+    end
+    try
+        LibGit2.fetch(up; remoteurl = joinpath(W, "up"), refspecs = ["+refs/*:refs/re\0motes/cache/*"])
+        ln(io, "NUL in a refspec", "accepted")
+    catch e
+        err(io, "NUL in a refspec", e)
+    end
+    try
+        LibGit2.with(c -> LibGit2.get(String, c, "core\0.bare"), LibGit2.GitConfig(up))
+        ln(io, "NUL in a configuration key", "accepted")
+    catch e
+        err(io, "NUL in a configuration key", e)
+    end
+    close(up)
+
+    dir = joinpath(W, "modes")
+    repo = LibGit2.init(dir)
+    for (h, hex) in MODE_OBJECTS
+        f = joinpath(dir, ".git", "objects", h[1:2], h[3:end])
+        mkpath(dirname(f))
+        write(f, hex2bytes(hex))
+    end
+    t = LibGit2.GitTree(repo, MODE_TREE)
+    # (a host without file modes, Wasm without julia_io: `chmod` throws and every mode reads 0o644; the lines
+    # below are then the native ones without having tested the modes)
+    probe = joinpath(W, "probe")
+    write(probe, "")
+    modes = try
+        chmod(probe, 0o600)
+        true
+    catch
+        false
+    end
+    out = joinpath(W, "modes-out")
+    mkpath(out)
+    exe = joinpath(out, "run.sh")
+    ln(io, "checkout of an executable entry", checkout_into(repo, t, out, LibGit2.Consts.CHECKOUT_FORCE))
+    listing(io, out)
+    ln(io, "run.sh is executable", !modes || filemode(exe) & 0o100 != 0, "plain.txt is not", filemode(joinpath(out, "plain.txt")) & 0o100 == 0)
+    # a dry run changes nothing: not the mode of a file that is there, and it writes no file
+    modes && chmod(exe, 0o600)
+    before = filemode(exe) & 0o777
+    dry = LibGit2.Consts.CHECKOUT_FORCE | LibGit2.Consts.CHECKOUT_DRY_RUN
+    ln(io, "dry run", checkout_into(repo, t, out, dry), "mode unchanged", filemode(exe) & 0o777 == before)
+    out2 = joinpath(W, "modes-dry")
+    mkpath(out2)
+    ln(io, "dry run into an empty directory", checkout_into(repo, t, out2, dry), length(readdir(out2)))
+    # reset! --hard to a commit of that tree writes the work tree; then an entry a checkout does not write (SAFE:
+    # a file missing from the directory is not recreated)
+    c = LibGit2.commit(repo, "modes\n"; author = SIG, committer = SIG, tree_id = LibGit2.GitHash(t))
+    LibGit2.reset!(repo, c, LibGit2.Consts.RESET_HARD)
+    ln(io, "reset! of an executable entry", c, !modes || filemode(joinpath(dir, "run.sh")) & 0o100 != 0)
+    rm(exe)
+    ln(io, "safe checkout", checkout_into(repo, t, out, LibGit2.Consts.CHECKOUT_SAFE), "run.sh recreated", isfile(exe))
+    close(t); close(repo)
+end
+
 function net_ops(io::IO, W::String)
     url = "https://github.com/JuliaLang/Example.jl.git"
     path = joinpath(W, "net", "Example")
@@ -210,6 +296,7 @@ function main()
     io = Core.stdout
     try
         local_ops(io, W)
+        mode_ops(io, W)
         get(ENV, "NET", "0") == "1" && net_ops(io, W)
     catch e
         err(io, "UNCAUGHT", e)

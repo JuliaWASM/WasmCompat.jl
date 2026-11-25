@@ -232,6 +232,44 @@ end
         c = WasmCompat.libgit2_config(WasmCodegen.Config(host = :wasi, import_libraries = ["other"]))
         @test length(c.foreign_functions) == length(fs) && c.import_libraries == ["other", "libgit2"]
         @test_throws ArgumentError WasmCompat.libgit2_config(WasmCodegen.Config(host = :js))
+        # a string with a NUL is not a `Cstring`, in the overlays either (the error is Base's, before any call)
+        e = try LibGit2Ext.cstring("check\0out") catch e; e end
+        e0 = try Base.unsafe_convert(Cstring, "check\0out") catch e; e end
+        @test e isa ArgumentError && e.msg == e0.msg
+        @test_throws ArgumentError LibGit2Ext.strarray(["a\0b"])
+        # the options the module is not given are errors unless they are LibGit2's defaults
+        @test LibGit2Ext.check_fetch_options(LibGit2.FetchOptions()) === nothing
+        @test LibGit2Ext.check_fetch_options(LibGit2.FetchOptions(depth = 1, prune = 1)) === nothing
+        url = "http://proxy.example"
+        GC.@preserve url begin
+            proxy = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_SPECIFIED, url = Base.unsafe_convert(Cstring, url))
+            @test_throws "FetchOptions(proxy_opts)" LibGit2Ext.check_fetch_options(LibGit2.FetchOptions(proxy_opts = proxy))
+        end
+        @test_throws ArgumentError LibGit2Ext.check_fetch_options(
+            LibGit2.FetchOptions(proxy_opts = LibGit2.ProxyOptions(proxytype = LibGit2.Consts.PROXY_NONE)))
+        @test_throws "FetchOptions(custom_headers)" LibGit2Ext.check_fetch_options(
+            LibGit2.FetchOptions(custom_headers = LibGit2.StrArrayStruct(Ptr{Cstring}(8), 1)))
+        @test LibGit2Ext.check_clone_checkout(LibGit2.CloneOptions().checkout_opts) === nothing
+        @test LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(checkout_strategy = LibGit2.Consts.CHECKOUT_FORCE)) === nothing
+        GC.@preserve url begin
+            @test_throws "target_directory" LibGit2Ext.check_clone_checkout(
+                LibGit2.CheckoutOptions(target_directory = Base.unsafe_convert(Cstring, url)))
+        end
+        @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(file_mode = 0o600))
+        @test_throws ArgumentError LibGit2Ext.check_clone_checkout(LibGit2.CheckoutOptions(disable_filters = 1))
+        @test_throws "CheckoutOptions(paths)" LibGit2Ext.check_clone_checkout(
+            LibGit2.CheckoutOptions(paths = LibGit2.StrArrayStruct(Ptr{Cstring}(8), 1)))
+        @test LibGit2Ext.remote_callbacks(LibGit2.Callbacks()) isa LibGit2.RemoteCallbacks
+        @test LibGit2Ext.remote_callbacks(LibGit2.Callbacks(:credentials => (C_NULL, nothing),
+                                                           :transfer_progress => (Ptr{Cvoid}(8), nothing))) isa LibGit2.RemoteCallbacks
+        @test_throws "certificate_check" LibGit2Ext.remote_callbacks(LibGit2.Callbacks(:certificate_check => (C_NULL, nothing)))
+        @test LibGit2Ext.no_credential(LibGit2.CredentialPayload()) === nothing
+        payload = LibGit2.CredentialPayload()
+        payload.credential = LibGit2.UserPasswordCredential("user", "password")
+        @test_throws ArgumentError LibGit2Ext.no_credential(payload)
+        # no executable bits after a dry run
+        @test LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_FORCE | LibGit2.Consts.CHECKOUT_DRY_RUN)
+        @test !LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_FORCE) && !LibGit2Ext.dry_run(LibGit2.Consts.CHECKOUT_SAFE)
     end
 
     include("simd.jl")

@@ -29,14 +29,18 @@ around and never dereferences. Two mechanisms carry `LibGit2`'s calls to the mod
 
 libgit2 calls no Julia callback here: `credentials_cb()`, `certificate_cb()` and `fetchhead_foreach_cb()` are null,
 `RemoteCallbacks(::Callbacks)` drops the callbacks, and the credential payload has nothing to approve or
-reject. Remotes are public https (TLS is the host's) and local paths; a remote that asks for
+reject. What a caller asks for and the module is not given is an `ArgumentError`, not a silent drop: a
+`:certificate_check` callback, `FetchOptions(proxy_opts)` and `FetchOptions(custom_headers)`, a clone's
+`CheckoutOptions` with more than a strategy, and `approve` or `reject` of a payload that holds a
+credential. Remotes are public https (TLS is the host's) and local paths; a remote that asks for
 credentials is libgit2's `EAUTH` error ("remote authentication required but no callback set"), and
 transfer progress is not reported. `LibGit2.initialize()` is `git_libgit2_init` only (no certificate
 locations, no `atexit`), and `rawcontent(::GitBlob)` copies the bytes out of the module.
 
 Differences from native that are WASI preview 1's: no permission bits (the module sets
 `core.filemode = false` for every repository it opens, so work trees are not dirty by mode, and
-checkouts make no file executable), no ssh, no processes (no credential helpers). Not in Wasm:
+checkouts make no file executable: the extension does, after a checkout that is not a dry run, where the
+program's `chmod` works), no ssh, no processes (no credential helpers). Not in Wasm:
 non-fast-forward `merge!`, `merge!` of FETCH_HEAD, and `CheckoutOptions(paths)` (Pkg uses none).
 Finalizers do not run in a module: objects `LibGit2` does not `close` are not freed.
 """
@@ -135,6 +139,11 @@ end
 cin(s::String) = cin_string(s)
 cin(s::Cstring) = convert(Ptr{UInt8}, s) == C_NULL ? UInt32(0) : cin_string(unsafe_string(s))
 cin(p::Ptr{UInt8}) = p == C_NULL ? UInt32(0) : cin_string(unsafe_string(p))
+"`s` where `LibGit2`'s `ccall` has a `Cstring`: `cin`, after `Cstring`'s error for an embedded NUL."
+function cstring(s::String)
+    Base.containsnul(s) && throw(ArgumentError("embedded NULs are not allowed in C strings: $(repr(s))"))
+    return cin_string(s)
+end
 
 "The NUL-terminated string at `a` (the module's memory)."
 function cout(a::UInt32)
@@ -188,14 +197,15 @@ ha(p::Ptr) = UInt32(UInt(p))
 hp(a::UInt32) = Ptr{Cvoid}(UInt(a))
 out_handle!(p::Ptr{Ptr{Cvoid}}, a::UInt32) = (unsafe_store!(p, hp(load32(a))); nothing)
 
-## string arrays: Julia strings as a `git_strarray` in the module's memory (freed when the call returns)
+## string arrays: Julia strings as a `git_strarray` in the module's memory (freed when the call returns; natively
+## an array of `Cstring`)
 
 function strarray(v::Vector{String})
     isempty(v) && return UInt32(0)
     n = length(v)
     arr = tmp(4n)
     for i in 1:n
-        store32(arr + UInt32(4(i - 1)), cin(v[i]))
+        store32(arr + UInt32(4(i - 1)), cstring(v[i]))
     end
     s = tmp(8)
     store32(s, arr)
@@ -582,20 +592,53 @@ const OV = WasmCodegen.Runtime.WASM_METHODS
 
 "The scalar fields of a `CheckoutOptions`, and its strings in the module (freed when the call returns)."
 function checkout_fields(c::CheckoutOptions)
-    c.paths.count == 0 || throw(ArgumentError("WasmCompat: CheckoutOptions(paths) is not supported in Wasm"))
+    c.paths.count == 0 || not_supported("CheckoutOptions(paths)")
     return (c.checkout_strategy, c.disable_filters, c.dir_mode, c.file_mode, c.file_open_flags, c.notify_flags,
             UInt32(0), cin(c.target_directory), cin(c.ancestor_label), cin(c.our_label), cin(c.their_label))
 end
 
+"A caller's option that the module is not given, and that is not `LibGit2`'s default: an error, not a silent drop."
+not_supported(what::String) = throw(ArgumentError("WasmCompat: $what is not supported in Wasm"))
+
+"Throws for a `CheckoutOptions` of a clone with more than a strategy (all that the module's clone is given)."
+function check_clone_checkout(c::CheckoutOptions)
+    c.paths.count == 0 || not_supported("CheckoutOptions(paths)")
+    convert(Ptr{UInt8}, c.target_directory) == C_NULL || not_supported("CloneOptions(checkout_opts) with a target_directory")
+    (c.disable_filters == 0 && c.dir_mode == 0 && c.file_mode == 0 && c.file_open_flags == 0 &&
+     c.notify_flags == Consts.CHECKOUT_NOTIFY_NONE && convert(Ptr{UInt8}, c.ancestor_label) == C_NULL &&
+     convert(Ptr{UInt8}, c.our_label) == C_NULL && convert(Ptr{UInt8}, c.their_label) == C_NULL) ||
+        not_supported("CloneOptions(checkout_opts) with more than a checkout_strategy")
+    return nothing
+end
+
+"Throws for a `FetchOptions` with a proxy or custom headers (the module's fetch and clone are given neither)."
+function check_fetch_options(f::FetchOptions)
+    p = f.proxy_opts
+    (p.proxytype == Consts.PROXY_AUTO && convert(Ptr{UInt8}, p.url) == C_NULL && p.credential_cb == C_NULL) ||
+        not_supported("FetchOptions(proxy_opts)")
+    f.custom_headers.count == 0 || not_supported("FetchOptions(custom_headers)")
+    return nothing
+end
+
 # types.jl: libgit2 calls no Julia callback in Wasm (see the module's documentation), so the callbacks a
-# caller passes are not given to it, and no credential is ever used (nothing to approve or reject)
-Base.Experimental.@overlay OV LibGit2.RemoteCallbacks(c::LibGit2.Callbacks) = LibGit2.RemoteCallbacks()
-Base.Experimental.@overlay OV LibGit2.approve(p::LibGit2.CredentialPayload; shred::Bool = true) = nothing
-Base.Experimental.@overlay OV LibGit2.reject(p::LibGit2.CredentialPayload; shred::Bool = true) = nothing
+# caller passes are not given to it (a certificate check, which could refuse a connection, is an error), and
+# no credential is ever used: nothing to approve or reject, but for a payload the caller filled itself
+function remote_callbacks(c::LibGit2.Callbacks)
+    haskey(c, :certificate_check) && not_supported("a certificate_check callback")
+    return LibGit2.RemoteCallbacks()
+end
+no_credential(p::LibGit2.CredentialPayload) =
+    p.credential === nothing ? nothing : not_supported("approve or reject of a CredentialPayload that holds a credential")
+Base.Experimental.@overlay OV LibGit2.RemoteCallbacks(c::LibGit2.Callbacks) = remote_callbacks(c)
+Base.Experimental.@overlay OV LibGit2.approve(p::LibGit2.CredentialPayload; shred::Bool = true) = no_credential(p)
+Base.Experimental.@overlay OV LibGit2.reject(p::LibGit2.CredentialPayload; shred::Bool = true) = no_credential(p)
 
 # WASI preview 1 has no permission bits, so the files the module writes are not executable: the entries git
 # records as executable (100755) of the tree checked out under `root` are made so here, through the
-# program's `chmod` (WasmCodegen: the host's `julia_io` file modes; without them, nothing changes).
+# program's `chmod` (WasmCodegen: the host's `julia_io` file modes; without them, `chmod` fails with ENOTSUP and
+# nothing changes). Not after a dry run, which writes no file. An entry the checkout left out of the work tree
+# (ENOENT) is skipped; any other failure of `chmod` is the caller's error, as a mode libgit2 cannot set is natively.
+dry_run(strategy::Cuint) = strategy & Consts.CHECKOUT_DRY_RUN != 0
 function exec_bits!(repo::Ptr{Cvoid}, spec::String, root::String)
     rc = try
         ccall((:lg2w_ls_tree, "libgit2"), Int32, (UInt32, UInt32), ha(repo), cin(spec))
@@ -611,7 +654,8 @@ function exec_bits!(repo::Ptr{Cvoid}, spec::String, root::String)
         f = joinpath(root, String(SubString(rec, nextind(rec, t))))
         try
             chmod(f, 0o755)
-        catch
+        catch e
+            e isa Base.IOError && (e.code == Base.UV_ENOTSUP || e.code == Base.UV_ENOENT) || rethrow()
         end
     end
     return nothing
@@ -645,7 +689,7 @@ Base.Experimental.@overlay OV function LibGit2.get(::Type{<:AbstractString}, c::
     try
         b = tmp(12)
         store32(b, UInt32(0)); store64(b + UInt32(4), UInt64(0))
-        rc = ccall((:git_config_get_string_buf, "libgit2"), Int32, (UInt32, UInt32, UInt32), b, ha(c.ptr), cin(String(name)))
+        rc = ccall((:git_config_get_string_buf, "libgit2"), Int32, (UInt32, UInt32, UInt32), b, ha(c.ptr), cstring(String(name)))
         rc < 0 && throw(Error.GitError(rc))
         str = String(copyout(load32(b), Int(load32(b + UInt32(8)))))
         ccall((:git_buf_dispose, "libgit2"), Cvoid, (UInt32,), b)
@@ -674,16 +718,19 @@ Base.Experimental.@overlay OV function LibGit2.clone(repo_url::AbstractString, r
                                                      clone_opts::CloneOptions)
     LibGit2.ensure_initialized()
     try
+        check_clone_checkout(clone_opts.checkout_opts)
+        check_fetch_options(clone_opts.fetch_opts)
         o = slot()
         f = clone_opts.fetch_opts
         rc = ccall((:lg2w_clone_raw, "libgit2"), Int32,
                    (UInt32, UInt32, UInt32, Int32, UInt32, UInt32, Int32, Int32, Int32, Int32, Int32),
-                   o, cin(String(repo_url)), cin(String(repo_path)), clone_opts.bare, cin(clone_opts.checkout_branch),
+                   o, cstring(String(repo_url)), cstring(String(repo_path)), clone_opts.bare, cin(clone_opts.checkout_branch),
                    clone_opts.checkout_opts.checkout_strategy, f.prune, f.update_fetchhead, f.download_tags,
                    reinterpret(Int32, f.depth), reinterpret(Int32, f.follow_redirects))
         rc < 0 && throw(Error.GitError(rc))
         repo = LibGit2.GitRepo(hp(load32(o)))
-        clone_opts.bare == 0 && exec_bits!(repo.ptr, "HEAD^{tree}", String(repo_path))
+        clone_opts.bare == 0 && !dry_run(clone_opts.checkout_opts.checkout_strategy) &&
+            exec_bits!(repo.ptr, "HEAD^{tree}", String(repo_path))
         return repo
     finally
         release!()
@@ -702,7 +749,7 @@ Base.Experimental.@overlay OV function LibGit2.checkout_tree(repo::LibGit2.GitRe
         rc < 0 && throw(Error.GitError(rc))
         td = options.target_directory
         root = convert(Ptr{UInt8}, td) == C_NULL ? LibGit2.path(repo) : unsafe_string(td)
-        exec_bits!(repo.ptr, string(GitHash(obj)), root)
+        dry_run(options.checkout_strategy) || exec_bits!(repo.ptr, string(GitHash(obj)), root)
         return Cint(rc)
     finally
         release!()
@@ -732,9 +779,10 @@ Base.Experimental.@overlay OV function LibGit2.fetch(rmt::LibGit2.GitRemote, ref
     LibGit2.ensure_initialized()
     msg = "libgit2.fetch: $msg"
     try
+        check_fetch_options(options)
         rc = ccall((:lg2w_remote_fetch_raw, "libgit2"), Int32,
                    (UInt32, UInt32, UInt32, Int32, Int32, Int32, Int32, Int32),
-                   ha(rmt.ptr), strarray(String[String(x) for x in refspecs]), cin(String(msg)), options.prune,
+                   ha(rmt.ptr), strarray(String[String(x) for x in refspecs]), cstring(String(msg)), options.prune,
                    options.update_fetchhead, options.download_tags, reinterpret(Int32, options.depth),
                    reinterpret(Int32, options.follow_redirects))
         rc < 0 && throw(Error.GitError(rc))
