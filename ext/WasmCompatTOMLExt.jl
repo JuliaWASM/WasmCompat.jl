@@ -37,7 +37,7 @@ is_valid(@nospecialize(v)) = v isa BaseTOMLValue || v isa TOMLDates
 # The value types the printer tells apart in `Any`-typed containers: the parser's own output
 # (with and without Dates) and the concrete containers programs commonly build.
 const SCALAR_TYPES = (String, SubString{String}, Int64, Int128, UInt64, UInt128, Int32, UInt32,
-    UInt8, Float64, Float32, Bool, Base.TOML.DateTime, Base.TOML.Date, Base.TOML.Time,
+    UInt8, Int8, Int16, UInt16, Float64, Float32, Bool, Base.TOML.DateTime, Base.TOML.Date, Base.TOML.Time,
     Dates.DateTime, Dates.Date, Dates.Time)
 const TABLE_TYPES = (Dict{String, Any}, Dict{String, String}, Dict{String, Vector{String}},
     Dict{String, Int64}, Dict{String, Bool}, Dict{String, Vector{Any}}, Dict{String, Dict{String, Any}},
@@ -48,7 +48,8 @@ const TABLE_TYPES = (Dict{String, Any}, Dict{String, String}, Dict{String, Vecto
 const ARRAY_TYPES = (Vector{Any}, Vector{String}, Vector{Int64}, Vector{Float64}, Vector{Bool},
     Vector{Dict{String, Any}}, Vector{Dict{String, String}}, Vector{Vector{Any}},
     Vector{Dates.DateTime}, Vector{Dates.Date}, Vector{Dates.Time}, Vector{Dict{String, Dates.DateTime}},
-    Vector{Base.UUID})
+    Vector{Base.UUID}, Vector{UInt64}, Vector{Int128}, Vector{UInt128}, Vector{Int32}, Vector{UInt32},
+    Vector{UInt8}, Vector{Int8}, Vector{Int16}, Vector{UInt16})
 # values that are not TOML values but are converted by the conversion function
 const CONVERTED_TYPES = (Base.UUID, Base.SHA1, VersionNumber, Nothing, Symbol)
 

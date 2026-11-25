@@ -44,6 +44,45 @@ function main()
     vstore(y, c, 1, Vec{4,Bool}((true, false, true, false)))
     out("stores = $(join(c, ", "))\n")
     out("masked load = $(show_vec(vload(Vec{4,Float64}, a, 5, Vec{4,Bool}((false, true, true, false)))))\n")
+    # as natively: a conversion to integers truncates, a negative base with an exponent that is not an integer is
+    # NaN, an `:undef` index of a shuffle is any lane, a reinterpretation to another number of lanes is of the same bytes
+    f = vload(Vec{2,Float64}, a, 1) * Vec{2,Float64}((1.5, -1.25))
+    out("truncating convert = $(show_vec(convert(Vec{2,Int64}, f)))\n")
+    out("pow = $(show_vec((vload(Vec{2,Float64}, a, 1) * Vec{2,Float64}((-1.0, 2.0)))^Vec{2,Float64}((0.5, 0.5))))\n")
+    out("shuffle with undef = $(shufflevector(f, Val((1, :undef)))[1])\n")
+    out("reinterpret = $(show_vec(reinterpret(Vec{4,UInt32}, f))) $(show_vec(reinterpret(Vec{2,Float64}, reinterpret(Vec{16,UInt8}, f)))) $(reinterpret(UInt128, f))\n")
+    # and: a conversion to Bool, the sign of a zero base, an index into a one-vector shuffle's undefined second vector,
+    # fptosi into unsigned lanes, and the errors of a bitcast between sizes and of an index that is not an integer
+    out("convert to Bool = $(show_vec(convert(Vec{2,Bool}, vload(Vec{2,Float64}, a, 1) - 1.0)))\n")
+    out("pow of -0.0 = $(show_vec((vload(Vec{2,Float64}, a, 1) * -0.0)^Vec{2,Float64}((-4097.0, 4097.0))))\n")
+    out("shuffle of one vector = $(shufflevector(f, Val((0, 2)))[1])\n")
+    out("fptosi to UInt32 = $(SIMD.Intrinsics.fptosi(SIMD.LVec{2,UInt32}, f.data)[2].value)\n")
+    r1 = try
+        string(SIMD.Intrinsics.bitcast(Int64, UInt8(a[1])))
+    catch err
+        err isa ArgumentError ? err.msg::String : "another error"
+    end
+    out("bitcast of another size = $r1\n")
+    # a Bool lane is the lowest bit of its byte, and a bitcast of pointer lanes is SIMD.jl's KeyError
+    b = reinterpret(Vec{2,Bool}, UInt16(a[1]) + 0x0301)
+    out("bitcast to Bool = $(b[1] ? 10 : 20) $(b[2] ? 10 : 20) $(sum(b)) $(reinterpret(Bool, Vec{1,UInt8}((UInt8(a[1]) + 0x01,))) ? 10 : 20)\n")
+    r3 = try
+        string(reinterpret(Vec{4,UInt}, Vec{3,Ptr{UInt8}}((pointer(a), pointer(a, 2), pointer(a, 3))))[1])
+    catch err
+        err isa KeyError ? "KeyError" : "another error"
+    end
+    r4 = try
+        string(reinterpret(Vec{2,UInt}, Vec{2,Ptr{UInt8}}((pointer(a), pointer(a, 2))))[1])
+    catch err
+        err isa KeyError ? "KeyError" : "another error"
+    end
+    out("bitcast of pointers = $r3 $r4\n")
+    r2 = try
+        string(shufflevector(f, Val((1.0, 0.0)))[1])
+    catch err
+        err isa TypeError ? "TypeError" : "another error"
+    end
+    out("shuffle index 1.0 = $r2\n")
     # vectors of 16 bytes of floats (and Vec{2,Float32}): WasmCodegen's SIMD128 operations, v128 instructions
     p = Vec{2,Float64}((1.5, -2.25)); q = Vec{2,Float64}((0.5, 4.0))
     out("f64x2 = $(show_vec(p + q)) $(show_vec(p - q)) $(show_vec(p * q)) $(show_vec(p / q)) $(show_vec(-p)) $(show_vec(abs(p)))\n")

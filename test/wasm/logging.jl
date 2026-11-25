@@ -17,6 +17,13 @@ function main()
     for i in 1:3
         @warn "only once" maxlog = 1 i
     end
+    # a call whose `maxlog` is used up evaluates neither its message nor its values
+    r = Ref(0)
+    for i in 1:3
+        @info "evaluated once" n = (r[] += 1) maxlog = 1
+        @info "twice, by a string id" n = (r[] += 10) maxlog = 2 _id = "an id"
+    end
+    @info "evaluations" r[]
     @debug "hidden"
     @info "multi\nline\nmessage" x = 1.5
     @warn "interpolated $(1 + 2) message"

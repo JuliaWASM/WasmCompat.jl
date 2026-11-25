@@ -18,6 +18,7 @@ Differences from the native default logger, by design:
 - the logger is fixed: `with_logger` and `global_logger` are not consulted, the minimum level is
   `Info` and `JULIA_DEBUG` is ignored (`@debug` prints nothing);
 - an exception logged with its backtrace (`exception = (err, bt)`) is shown without the backtrace;
+- `maxlog` is not counted for a call given an `_id` that is neither a `Symbol` nor a `String`;
 - every value is shown as a value of a type not known at compile time (the macros pass them as
   `Any`): of one of the types of `show_any` below (strings, symbols, numbers, versions, UUIDs),
   or an exception (`WasmCompat.showerror_hook`, then WasmCodegen's `Runtime.showerror_any`);
@@ -51,11 +52,16 @@ Base.Experimental.@overlay WasmCodegen.Runtime.WASM_METHODS function Base.CoreLo
     return std_level >= Info ? LOGGER[] : nothing
 end
 
-Base.CoreLogging.shouldlog(::WasmStderrLogger, level, _module, group, id) = true
+# (as ConsoleLogger: a call whose `maxlog` is used up builds neither its message nor its values)
+Base.CoreLogging.shouldlog(::WasmStderrLogger, level, _module, group, id) = !(id isa LogId) || get(MAXLOG, id, 1) > 0
 Base.CoreLogging.min_enabled_level(logger::WasmStderrLogger) = logger.min_level
 Base.CoreLogging.catch_exceptions(::WasmStderrLogger) = true
 
-const MAXLOG = Dict{Symbol, Int}()
+# `maxlog` is counted for the ids the macros make (a `Symbol`) and for a `String` given as `_id`.
+# (ConsoleLogger's `Dict{Any, Int}` counts an id of any type: its `hash` is not a call known at
+# compile time. A call with an `_id` of another type is not limited.)
+const LogId = Union{Symbol, String}
+const MAXLOG = Dict{LogId, Int}()
 
 # (the macros call this; its arguments are specialized on, unlike `handle_message`'s)
 function Base.CoreLogging.handle_message_nothrow(::WasmStderrLogger, level::LogLevel, message, _module, group, id,
@@ -96,7 +102,7 @@ function log_record(io::IO, level::LogLevel, @nospecialize(message), @nospeciali
         @nospecialize(file), @nospecialize(line), kwargs::NamedTuple)
     if haskey(kwargs, :maxlog)
         maxlog = kwargs.maxlog
-        if maxlog isa Core.BuiltinInts && id isa Symbol
+        if maxlog isa Core.BuiltinInts && id isa LogId
             remaining = get!(MAXLOG, id, Int(maxlog))
             remaining == 0 && return false
             MAXLOG[id] = remaining - 1

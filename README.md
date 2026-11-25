@@ -170,6 +170,7 @@ arrays. A few overlays are closed-world forms of `LibGit2`'s own code (the objec
   without a target type builds values whose types are known only at run time.
 - **Logging:** the logger is fixed. `with_logger` and `global_logger` are not consulted, the
   minimum level is `Info`, and `JULIA_DEBUG` is ignored. Exceptions are shown without backtraces.
+  `maxlog` is not counted for a call given an `_id` that is neither a `Symbol` nor a `String`.
   Values are shown if they are of a common type (strings, symbols, numbers, versions, UUIDs) or an
   exception; any other value, vectors included, is shown as `(a value of type T)`.
 - **Logging, a code-generator limit:** a log call whose key-value pairs include a value of a type

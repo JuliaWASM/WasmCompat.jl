@@ -84,6 +84,8 @@ function api()
     bad = "ab\xffcd\xe2\x82ef"
     matches(io, r"\w+", bad)
     ln(io, occursin(r"b.c", bad), findfirst(r"cd", bad))
+    # MATCH_INVALID_UTF without UTF is UTF mode too: a character, not a byte
+    ln(io, occursin(Regex(raw"^.$", Base.PCRE.MATCH_INVALID_UTF, 0), "é"))
     return String(take!(io))
 end
 

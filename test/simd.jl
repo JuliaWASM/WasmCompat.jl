@@ -55,6 +55,16 @@ import SIMD
             @test near(L(f)(T(0.75)), getfield(SI, f)(T(0.75)))
         end
         @test near(L(:pow)(p, z), SI.pow(p, z))
+        # pow of a negative base: NaN for an exponent that is not an integer (Julia's `^` throws), and the limits
+        b = lv(T[-1, -8, -2, -0.5, -Inf, -Inf, -Inf, -Inf, -2, -2, -1, NaN])
+        e = lv(T[0.5, 1 / 3, 3, -2, 0.5, -0.5, 3, -3, Inf, -Inf, NaN, 0.5])
+        @test_throws DomainError T(-1)^T(0.5)
+        @test same(L(:pow)(b, e), SI.pow(b, e))
+        # a base of ±0: the sign of -0.0 for an odd integer exponent, a large one too (where Julia's `^` loses it)
+        for z in (T(0), -T(0))
+            ez = lv(T[3, -3, 4097, -4097, 65537, -65537, 2, -2, 4096, -4096, 0.5, -0.5, Inf, -Inf, 0, NaN])
+            @test same(L(:pow)(lv(fill(z, 16)), ez), SI.pow(lv(fill(z, 16)), ez))
+        end
         for flag in (:oeq, :one, :ogt, :oge, :olt, :ole, :ord, :uno, :ueq, :une, :ugt, :uge, :ult, :ule, :false, :true)
             f = Symbol("fcmp_", flag)
             @test same(L(f)(x, y), getfield(SI, f)(x, y))
@@ -109,10 +119,33 @@ import SIMD
         @test same(L(:constantvector)(2.5, SIMD.LVec{4,Float64}), SI.constantvector(2.5, SIMD.LVec{4,Float64}))
         @test same(L(:shufflevector)(x, y, Val((0, 5, 2, 7))), SI.shufflevector(x, y, Val((0, 5, 2, 7))))
         @test same(L(:shufflevector)(x, Val((3, 2, 1, 0, 0))), SI.shufflevector(x, Val((3, 2, 1, 0, 0))))
+        # an `:undef` index: a lane of any value (the others as natively)
+        @test same(L(:shufflevector)(x, Val((2, :undef, 0)))[[1, 3]], SI.shufflevector(x, Val((2, :undef, 0)))[[1, 3]])
+        @test same(L(:shufflevector)(x, y, Val((:undef, 6)))[2], SI.shufflevector(x, y, Val((:undef, 6)))[2])
+        # one vector: an index into the second, which is undefined (a lane of any value; the others as natively)
+        @test same(L(:shufflevector)(x, Val((1, 4, 7, 3)))[[1, 4]], SI.shufflevector(x, Val((1, 4, 7, 3)))[[1, 4]])
+        # an index that is not an integer: SIMD.jl's TypeError
+        for I in ((1.0, 0.0), (:x, 0))
+            @test_throws TypeError SI.shufflevector(x, Val(I))
+            @test_throws TypeError L(:shufflevector)(x, Val(I))
+            @test_throws TypeError SI.shufflevector(x, y, Val(I))
+            @test_throws TypeError L(:shufflevector)(x, y, Val(I))
+        end
         i = lv(Int32[-3, 7, 1 << 20, 0])
         @test same(L(:sitofp)(SIMD.LVec{4,Float64}, i), SI.sitofp(SIMD.LVec{4,Float64}, i))
-        @test same(L(:fptosi)(SIMD.LVec{4,Int64}, x .|> v -> VecElement(floor(v.value))),
-                   SI.fptosi(SIMD.LVec{4,Int64}, x .|> v -> VecElement(floor(v.value))))
+        # (toward zero: 1.5 is 1 and -2.5 is -2)
+        fr = lv([1.5, -2.5, 3.25, 200.75])
+        @test same(L(:fptosi)(SIMD.LVec{4,Int64}, fr), SI.fptosi(SIMD.LVec{4,Int64}, fr))
+        @test same(L(:fptosi)(SIMD.LVec{4,Int32}, fr), SI.fptosi(SIMD.LVec{4,Int32}, fr))
+        @test same(L(:fptoui)(SIMD.LVec{4,UInt8}, lv(Float32[1.5, 0.9, 3.25, 200.75])), SI.fptoui(SIMD.LVec{4,UInt8}, lv(Float32[1.5, 0.9, 3.25, 200.75])))
+        # signed or unsigned as the intrinsic is, whatever the lanes' type: -2 in a UInt32, 200 in an Int8
+        @test same(L(:fptosi)(SIMD.LVec{4,UInt32}, fr), SI.fptosi(SIMD.LVec{4,UInt32}, fr))
+        @test same(L(:fptoui)(SIMD.LVec{4,Int8}, lv([200.5, 255.9, 1.5, 0.0])), SI.fptoui(SIMD.LVec{4,Int8}, lv([200.5, 255.9, 1.5, 0.0])))
+        @test same(L(:fptoui)(SIMD.LVec{4,Int32}, lv([3.0e9, 4.0e9, 1.5, 0.0])), SI.fptoui(SIMD.LVec{4,Int32}, lv([3.0e9, 4.0e9, 1.5, 0.0])))
+        # to Bool (convert(Vec{4,Bool}, ::Vec{4,Float64}) is fptoui)
+        fb = lv([1.0, 0.0, 0.0, 1.0])
+        @test same(L(:fptoui)(SIMD.LVec{4,Bool}, fb), SI.fptoui(SIMD.LVec{4,Bool}, fb))
+        @test same(L(:fptosi)(SIMD.LVec{4,Bool}, fb), SI.fptosi(SIMD.LVec{4,Bool}, fb))
         @test same(L(:fptrunc)(SIMD.LVec{4,Float32}, x), SI.fptrunc(SIMD.LVec{4,Float32}, x))
         @test same(L(:fpext)(SIMD.LVec{4,Float64}, lv(Float32[1.5, 2, 3, 4])), SI.fpext(SIMD.LVec{4,Float64}, lv(Float32[1.5, 2, 3, 4])))
         @test same(L(:sext)(SIMD.LVec{4,Int64}, i), SI.sext(SIMD.LVec{4,Int64}, i))
@@ -120,8 +153,45 @@ import SIMD
         @test same(L(:trunc)(SIMD.LVec{4,Int8}, i), SI.trunc(SIMD.LVec{4,Int8}, i))
         @test same(L(:bitcast)(SIMD.LVec{4,UInt64}, x), SI.bitcast(SIMD.LVec{4,UInt64}, x))
         @test same(L(:bitcast)(UInt64, 1.5), SI.bitcast(UInt64, 1.5))
+        # to another number of lanes, and between a vector and a scalar: the same bytes
+        for (T, v) in ((SIMD.LVec{8,UInt32}, x), (SIMD.LVec{2,UInt128}, x), (SIMD.LVec{32,UInt8}, x), (SIMD.LVec{16,Int16}, x),
+                       (SIMD.LVec{2,Float64}, lv(UInt32[1, 0x3ff80000, 0xdeadbeef, 0xc0000000])), (SIMD.LVec{2,Float32}, lv([-1.5f0, 2.0f0])),
+                       (SIMD.LVec{4,Float32}, lv(Int8.(-8:7))), (SIMD.LVec{2,Float64}, typemax(UInt128) >> 3), (SIMD.LVec{8,Bool}, 0x0100010100000001),
+                       (UInt64, lv([1.5f0, -2.0f0])), (Float64, lv(UInt8.(1:8))), (UInt128, lv([1.5, -2.5])), (Int16, lv(Bool[1, 0])))
+            @test same(L(:bitcast)(T, v), SI.bitcast(T, v))
+        end
+        @test_throws ArgumentError SI.bitcast(SIMD.LVec{4,UInt32}, x)
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{4,UInt32}, x)
+        @test_throws ArgumentError L(:bitcast)(UInt32, x)
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{4,UInt32}, 1.5)
+        # scalars of two sizes: SIMD.jl's ArgumentError
+        msg = "size of conversion type (Int64: 64) must be equal to the vector type (UInt8: 8)"
+        @test_throws ArgumentError(msg) SI.bitcast(Int64, 0x01)
+        @test_throws ArgumentError(msg) L(:bitcast)(Int64, 0x01)
+        # 3 lanes of UInt8 are 24 bits in a type of 32: LLVM's error natively, not the sizes' ArgumentError
+        @test_throws ErrorException SI.bitcast(UInt32, lv([0x01, 0x02, 0x03]))
+        @test_throws "(24 bits) to UInt32 (32 bits)" L(:bitcast)(UInt32, lv([0x01, 0x02, 0x03]))
+        @test_throws ErrorException L(:bitcast)(SIMD.LVec{3,UInt8}, 0x01020304)
+        # a lane type SIMD.jl has no LLVM type for, a pointer: its KeyError
+        p = lv(Ptr{UInt8}[1, 2])
+        for (T, v) in ((sizeof(Int) == 8 ? UInt128 : UInt64, p), (SIMD.LVec{2,UInt}, p), (SIMD.LVec{2 * sizeof(Int),UInt8}, p),
+                       (SIMD.LVec{2,Ptr{UInt8}}, lv(UInt[1, 2])), (SIMD.LVec{2,Ptr{UInt8}}, p),
+                       # (before the bits are compared: 3 lanes and 4 of one padded size)
+                       (SIMD.LVec{4,UInt}, lv(Ptr{UInt8}[1, 2, 3])), (SIMD.LVec{3,Ptr{UInt8}}, lv(UInt[1, 2, 3, 4])))
+            @test_throws KeyError(Ptr{UInt8}) SI.bitcast(T, v)
+            @test_throws KeyError(Ptr{UInt8}) L(:bitcast)(T, v)
+        end
+        # (the lane type of a vector of vectors is a vector, not one of those either)
+        @test_throws KeyError(SIMD.LVec{2,UInt8}) SI.bitcast(SIMD.LVec{1,SIMD.LVec{2,UInt8}}, lv([0x01, 0x02]))
+        @test_throws KeyError(SIMD.LVec{2,UInt8}) L(:bitcast)(SIMD.LVec{1,SIMD.LVec{2,UInt8}}, lv([0x01, 0x02]))
+        # (and after the sizes)
+        @test_throws ArgumentError SI.bitcast(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
+        @test_throws ArgumentError L(:bitcast)(SIMD.LVec{2,UInt32}, lv(Ptr{UInt8}[1, 2, 3]))
         m = lv(Bool[1, 0, 1, 1])
         @test same(L(:bitmask)(m), SI.bitmask(m))
+        @test same(L(:bitmask)(ntuple(k -> VecElement(isodd(k)), 128)), SI.bitmask(ntuple(k -> VecElement(isodd(k)), 128)))
+        @test_throws ArgumentError("vector length 129 must be <= 128") SI.bitmask(ntuple(k -> VecElement(true), 129))
+        @test_throws ArgumentError("vector length 129 must be <= 128") L(:bitmask)(ntuple(k -> VecElement(true), 129))
         @test same(L(:reduce_add)(m), SI.reduce_add(m))
     end
 

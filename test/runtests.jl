@@ -118,6 +118,15 @@ end
             @test typed(t; sorted = true) == stock(t; sorted = true)
             @test typed(t) == stock(t)
         end
+        # the parser's array of hexadecimal integers, and integers of every width
+        h = TOML.parse("a = [0xff, 0x01]\nb = [[0x1], [2]]")
+        @test h["a"] isa Vector{UInt64} && typed(h) == stock(h)
+        for T in (Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128)
+            @test typed(Dict("x" => typemax(T))) == stock(Dict("x" => typemax(T)))
+            @test typed(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)])) == stock(Dict{String, Any}("x" => typemin(T), "v" => Any[T(1)]))
+            @test typed(Dict("v" => T[1, typemax(T)])) == stock(Dict("v" => T[1, typemax(T)]))
+            @test typed(Dict{String, Any}("v" => T[typemin(T)])) == stock(Dict{String, Any}("v" => T[typemin(T)]))
+        end
         # errors as Base's: no conversion function, a conversion to a non-TOML value
         @test_throws ErrorException typed(Dict{String, Any}("u" => UUID(0)))
         @test_throws ErrorException typed(Dict{String, Any}("u" => UUID(0)); f = x -> x)
@@ -156,6 +165,14 @@ end
         empty!(LoggingExt.MAXLOG)
         outs = [typed(Logging.Warn, "once", (; maxlog = 1, i = i); id = :once) for i in 1:3]
         @test outs[1] != "" && outs[2] == "" && outs[3] == ""
+        # ... and a call whose `maxlog` is used up is not made (its message and values are not evaluated)
+        logger = LoggingExt.LOGGER[]
+        @test !Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, :once)
+        @test Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, :another)
+        # a `String` given as `_id` is counted as a `Symbol` is
+        outs = [typed(Logging.Warn, "once", (; maxlog = 2); id = "an id") for i in 1:3]
+        @test outs[1] != "" && outs[2] != "" && outs[3] == ""
+        @test !Base.CoreLogging.shouldlog(logger, Logging.Warn, Main, :g, "an id")
         # a value of a type it does not know
         @test occursin("(a value of type", typed(Logging.Info, "m", (; t = (1, 2))))
         # the program's exceptions
